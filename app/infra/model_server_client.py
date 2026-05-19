@@ -4,8 +4,8 @@ Interface:
     classify(text), extract(text), summarize(text),
     rerank(query, candidates), embed(texts, mode='query'|'passage')
 
-Slice 03: only classify + health are implemented; the other methods raise
-NotImplementedError until their owning slices land.
+Slice 05: classify + extract + health wired. rerank/embed land with slice 07;
+summarize() is NOT a model-server hop — it lives in app/services/summarizer.py.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import os
 
 import httpx
 
-from app.domain.exceptions import ClassifierUnavailable
+from app.domain.exceptions import ClassifierUnavailable, NERFailure
 
 
 class ModelServerClient:
@@ -47,3 +47,15 @@ class ModelServerClient:
             except (httpx.HTTPError, httpx.RequestError) as exc:
                 last_exc = exc
         raise ClassifierUnavailable(f"model-server /classify failed: {last_exc}") from last_exc
+
+    def extract(self, text: str) -> dict:
+        """POST /extract -> {entities: [...]}. Same 2-try retry as classify()."""
+        last_exc: Exception | None = None
+        for _ in range(2):
+            try:
+                r = httpx.post(f"{self._base}/extract", json={"text": text}, timeout=self._timeout)
+                r.raise_for_status()
+                return r.json()
+            except (httpx.HTTPError, httpx.RequestError) as exc:
+                last_exc = exc
+        raise NERFailure(f"model-server /extract failed: {last_exc}") from last_exc
