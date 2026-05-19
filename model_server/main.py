@@ -2,6 +2,7 @@
 
 Endpoints: /health, /model_card, /classify, /ner, /rerank, /embed
 """
+
 from fastapi import FastAPI
 
 app = FastAPI(title="model-server")

@@ -6,6 +6,7 @@ Interface:
 Slice 01: thin passthrough — stream Groq tokens, no tools/memory yet.
 Future slices add: agent loop (6-step cap, temp=0.2), tool dispatch, memory recall.
 """
+
 from __future__ import annotations
 
 import uuid

@@ -2,6 +2,7 @@
 
 After editing any prompts/*.md, run scripts/bump_prompt_shas.py to regenerate this.
 """
+
 from pathlib import Path
 
 PROMPTS_DIR = Path(__file__).parent

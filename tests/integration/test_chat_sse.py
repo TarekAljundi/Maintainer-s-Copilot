@@ -1,4 +1,5 @@
 """Chat SSE integration test. Groq client is monkey-patched; lifespan is bypassed."""
+
 from __future__ import annotations
 
 import json
@@ -35,7 +36,7 @@ def test_sse_emits_tokens_done_and_terminator(client: TestClient):
         for line in r.iter_lines():
             if not line or not line.startswith("data:"):
                 continue
-            data = line[len("data:"):].strip()
+            data = line[len("data:") :].strip()
             if data == "[DONE]":
                 terminator_seen = True
                 continue
