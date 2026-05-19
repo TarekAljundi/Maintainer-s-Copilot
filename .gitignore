@@ -1,0 +1,51 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.env
+!.env.example
+
+# uv
+.uv_cache/
+uv.lock.bak
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.egg-info/
+node_modules/
+widget/dist/
+
+# Data
+data/
+*.pt
+*.bin
+*.safetensors
+reports/
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# W&B
+wandb/
+
+# Alembic
+migrations/versions/__pycache__/

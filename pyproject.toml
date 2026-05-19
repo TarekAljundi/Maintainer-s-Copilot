@@ -1,0 +1,53 @@
+[project]
+name = "maintainer-copilot"
+version = "0.1.0"
+description = "Maintainer's Copilot - AIE Week 7"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2",
+    "pydantic-settings",
+    "structlog",
+    "httpx",
+    "hvac",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi",
+    "uvicorn[standard]",
+    "fastapi-users[sqlalchemy]>=13",
+    "sqlalchemy[asyncio]>=2",
+    "asyncpg",
+    "alembic",
+    "redis[hiredis]",
+    "minio",
+    "groq",
+    "langfuse>=2,<3",
+    "pgvector",
+    "rank-bm25",
+    "pyyaml",
+]
+model-server = [
+    "fastapi",
+    "uvicorn",
+    "transformers",
+    "torch",
+    "accelerate",
+    "sentence-transformers",
+    "spacy",
+]
+streamlit = ["streamlit", "httpx"]
+evals = ["ragas==0.2.5", "scikit-learn", "datasets", "langchain-groq"]
+dev = ["pytest", "pytest-asyncio", "ruff", "pyright"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pyright]
+include = ["app", "model_server", "evals"]
+typeCheckingMode = "basic"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

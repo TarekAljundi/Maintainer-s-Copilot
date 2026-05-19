@@ -1,0 +1,16 @@
+classification:
+  macro_f1:        { floor: 0.65, regression_margin: 0.02 }
+  per_class_f1:
+    bug:      { floor: 0.60, regression_margin: 0.03 }
+    feature:  { floor: 0.55, regression_margin: 0.03 }
+    docs:     { floor: 0.50, regression_margin: 0.03 }
+    question: { floor: 0.65, regression_margin: 0.02 }
+
+rag:
+  hit_at_5:         { floor: 0.60, regression_margin: 0.03 }
+  mrr_at_10:        { floor: 0.55, regression_margin: 0.03 }
+  faithfulness:     { floor: 0.70, regression_margin: 0.03 }
+  answer_relevancy: { floor: 0.65, regression_margin: 0.03 }
+
+redaction:
+  must_pass: true
