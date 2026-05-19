@@ -49,3 +49,4 @@ wandb/
 
 # Alembic
 migrations/versions/__pycache__/
+.venv-wsl/

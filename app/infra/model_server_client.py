@@ -3,4 +3,47 @@
 Interface:
     classify(text), extract(text), summarize(text),
     rerank(query, candidates), embed(texts, mode='query'|'passage')
+
+Slice 03: only classify + health are implemented; the other methods raise
+NotImplementedError until their owning slices land.
 """
+
+from __future__ import annotations
+
+import os
+
+import httpx
+
+from app.domain.exceptions import ClassifierUnavailable
+
+
+class ModelServerClient:
+    def __init__(self, base_url: str | None = None, timeout: float = 10.0) -> None:
+        self._base = (
+            base_url or os.environ.get("MODEL_SERVER_URL", "http://model-server:8001")
+        ).rstrip("/")
+        self._timeout = timeout
+
+    def health(self) -> dict:
+        try:
+            r = httpx.get(f"{self._base}/health", timeout=self._timeout)
+            r.raise_for_status()
+        except (httpx.HTTPError, httpx.RequestError) as exc:
+            raise ClassifierUnavailable(f"model-server /health failed: {exc}") from exc
+        return r.json()
+
+    def classify(self, text: str, title: str | None = None) -> dict:
+        payload: dict = {"text": text}
+        if title is not None:
+            payload["title"] = title
+        # Two-try retry: one transient retry is cheap and covers a model-server
+        # restart mid-turn. Full backoff/circuit-breaker lands in slice 09.
+        last_exc: Exception | None = None
+        for _ in range(2):
+            try:
+                r = httpx.post(f"{self._base}/classify", json=payload, timeout=self._timeout)
+                r.raise_for_status()
+                return r.json()
+            except (httpx.HTTPError, httpx.RequestError) as exc:
+                last_exc = exc
+        raise ClassifierUnavailable(f"model-server /classify failed: {last_exc}") from last_exc
