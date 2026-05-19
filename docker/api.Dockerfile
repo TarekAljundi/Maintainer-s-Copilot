@@ -3,6 +3,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 COPY pyproject.toml ./
 COPY app ./app
+COPY model_server ./model_server
 COPY prompts ./prompts
 COPY eval_thresholds.yaml ./
 RUN uv pip install --system -e ".[api]"
