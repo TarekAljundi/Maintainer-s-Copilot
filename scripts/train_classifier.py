@@ -36,6 +36,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn as nn
 from sklearn.metrics import accuracy_score, classification_report, f1_score
 from transformers import (
     AutoModelForSequenceClassification,
@@ -111,6 +112,32 @@ def collate(batch: list[dict], pad_id: int) -> dict[str, torch.Tensor]:
         )
         out["labels"].append(b["labels"])
     return {k: torch.stack(v) for k, v in out.items()}
+
+
+# ---------- class weights ----------
+
+
+def compute_class_weights(records: list[dict]) -> torch.Tensor:
+    """Inverse-frequency weights, normalized so mean=1 across classes.
+
+    Empty classes (e.g., docs=0 in train) get the max non-empty weight so the model
+    has a sensible bias if any docs example shows up in val/test.
+    """
+    counts = Counter(r["label"] for r in records)
+    n_total = sum(counts.values())
+    n_classes = len(LABELS)
+    raw = []
+    for lbl in LABELS:
+        c = counts.get(lbl, 0)
+        if c == 0:
+            raw.append(None)  # patch later
+        else:
+            raw.append(n_total / (n_classes * c))
+    fallback = max(w for w in raw if w is not None) if any(w is not None for w in raw) else 1.0
+    raw = [w if w is not None else fallback for w in raw]
+    weights = torch.tensor(raw, dtype=torch.float32)
+    weights = weights * (len(weights) / weights.sum())  # normalize so mean = 1
+    return weights
 
 
 # ---------- discriminative LR ----------
@@ -190,8 +217,14 @@ def weights_sha(weights_path: Path) -> str:
 
 def rewrite_registry(sha: str) -> None:
     text = REGISTRY_PATH.read_text(encoding="utf-8")
-    text = re.sub(r'WEIGHTS_SHA256: str = "[^"]*"', f'WEIGHTS_SHA256: str = "{sha}"', text)
-    REGISTRY_PATH.write_text(text, encoding="utf-8")
+    # Match either single-line or parenthesized assignment (ruff format may rewrap).
+    new_text = re.sub(
+        r"WEIGHTS_SHA256: str = \([^)]*\)|WEIGHTS_SHA256: str = \"[^\"]*\"",
+        f'WEIGHTS_SHA256: str = "{sha}"',
+        text,
+        count=1,
+    )
+    REGISTRY_PATH.write_text(new_text, encoding="utf-8")
 
 
 def write_model_card(
@@ -338,13 +371,42 @@ def train(args) -> int:
         gradient_checkpointing=True,
     )
 
-    class DiscriminativeLRTrainer(Trainer):
+    class_weights = compute_class_weights(train_recs) if not args.no_balance else None
+    if class_weights is not None:
+        print(f"class weights (mean=1): {dict(zip(LABELS, class_weights.tolist()))}")
+
+    class WeightedDiscLRTrainer(Trainer):
         def create_optimizer(self):
             if self.optimizer is None:
                 self.optimizer = torch.optim.AdamW(build_param_groups(self.model))
             return self.optimizer
 
-    trainer_cls = Trainer if args.no_disc else DiscriminativeLRTrainer
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            labels = inputs.pop("labels")
+            outputs = model(**inputs)
+            logits = outputs.logits
+            if class_weights is None:
+                loss = nn.functional.cross_entropy(logits, labels)
+            else:
+                loss = nn.functional.cross_entropy(
+                    logits, labels, weight=class_weights.to(logits.device)
+                )
+            return (loss, outputs) if return_outputs else loss
+
+    class DefaultLRTrainer(Trainer):
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            labels = inputs.pop("labels")
+            outputs = model(**inputs)
+            logits = outputs.logits
+            if class_weights is None:
+                loss = nn.functional.cross_entropy(logits, labels)
+            else:
+                loss = nn.functional.cross_entropy(
+                    logits, labels, weight=class_weights.to(logits.device)
+                )
+            return (loss, outputs) if return_outputs else loss
+
+    trainer_cls = DefaultLRTrainer if args.no_disc else WeightedDiscLRTrainer
     trainer = trainer_cls(
         model=model,
         args=training_args,
@@ -419,6 +481,11 @@ def main() -> int:
         "--no-disc",
         action="store_true",
         help="disable discriminative LR (uses TrainingArgs single LR — sanity check)",
+    )
+    parser.add_argument(
+        "--no-balance",
+        action="store_true",
+        help="disable inverse-frequency class weighting in the loss",
     )
     args = parser.parse_args()
     os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")

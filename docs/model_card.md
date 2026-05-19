@@ -36,7 +36,7 @@
 ## Weights
 - Bucket / prefix: `s3://mc-models/classifier/v1/`
 - Files: `model.safetensors`, `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, `spm.model`, `config.json`
-- SHA-256 (model.safetensors): `1966ceac02bef9682998894fe01ba0536f6068700e0fc72ace268f967a423df1`
+- SHA-256 (model.safetensors): `efb5388e886552d6c35ac861b1b8bcf6e28b91b168346957f3c646bbe88ba21e`
 - Pinned in: `app/infra/_classifier_registry.py::WEIGHTS_SHA256`
 - Boot check #5 compares the model-server-reported SHA against this pin.
 
