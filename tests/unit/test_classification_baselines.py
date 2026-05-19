@@ -77,8 +77,14 @@ def test_classical_predict_artifact_missing(tmp_path: Path) -> None:
 
 
 def test_llm_fewshot_shape_no_api_call() -> None:
-    """LLM few-shot composition is offline-checkable (no GROQ_API_KEY needed)."""
-    msgs = llm_b._build_fewshot_messages()
+    """LLM few-shot composition is offline-checkable (no GROQ_API_KEY, no train.jsonl)."""
+    # Synthetic train so the test does not depend on data/splits/train.jsonl.
+    synthetic_train = [
+        {"title": "crash", "body": "stack trace", "label": "bug"},
+        {"title": "add x", "body": "wishlist", "label": "feature"},
+        {"title": "how to y?", "body": "tutorial unclear", "label": "question"},
+    ]
+    msgs = llm_b._build_fewshot_messages(train_records=synthetic_train)
     # 4 classes x 3 messages each (user/assistant/tool) = 12
     assert len(msgs) == 12
     roles = [m["role"] for m in msgs]

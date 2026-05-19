@@ -112,12 +112,18 @@ def _shape_user_message(title: str | None, body: str | None, max_chars: int | No
     return f"Title: {title}"
 
 
-def _build_fewshot_messages() -> list[dict]:
-    """One example per class. `docs` is synthesized; bug/feature/question come from train."""
+def _build_fewshot_messages(train_records: list[dict] | None = None) -> list[dict]:
+    """One example per class. `docs` is synthesized; bug/feature/question come from train.
+
+    `train_records` is injectable so tests can pass synthetic data without needing
+    `data/splits/train.jsonl` on disk. Production callers pass `None`, which loads
+    the canonical split.
+    """
     rng = random.Random(FEWSHOT_SEED)
-    train = _load_jsonl(SPLITS_DIR / "train.jsonl")
+    if train_records is None:
+        train_records = _load_jsonl(SPLITS_DIR / "train.jsonl")
     by_label: dict[str, list[dict]] = {label: [] for label in LABELS}
-    for r in train:
+    for r in train_records:
         if r["label"] in by_label:
             by_label[r["label"]].append(r)
 
