@@ -1,0 +1,6 @@
+# Shell scripts and Dockerfiles must use LF line endings even on Windows
+# checkouts — otherwise containers reject them at runtime.
+*.sh text eol=lf
+*.bash text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf

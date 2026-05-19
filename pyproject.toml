@@ -35,9 +35,13 @@ model-server = [
     "accelerate",
     "sentence-transformers",
     "spacy",
+    "sentencepiece",
+    "tiktoken",
+    "minio",
+    "hvac",
 ]
 streamlit = ["streamlit", "httpx"]
-evals = ["ragas==0.2.5", "scikit-learn", "datasets", "langchain-groq"]
+evals = ["ragas==0.2.5", "scikit-learn", "datasets", "langchain-groq", "tensorboard"]
 dev = ["pytest", "pytest-asyncio", "ruff", "pyright"]
 
 [build-system]
