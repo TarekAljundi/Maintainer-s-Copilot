@@ -1,4 +1,5 @@
 """Single exception handler mapping AppError -> JSON envelope w/ trace_id + request_id."""
+
 from fastapi import FastAPI
 
 

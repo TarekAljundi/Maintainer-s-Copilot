@@ -1,4 +1,5 @@
 """Chat endpoint. SSE streaming. Delegates to ChatbotService."""
+
 from __future__ import annotations
 
 import json

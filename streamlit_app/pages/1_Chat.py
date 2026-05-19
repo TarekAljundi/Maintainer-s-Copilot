@@ -2,6 +2,7 @@
 
 Slice 01: hardcoded user_id, no auth yet (added in slice 10).
 """
+
 from __future__ import annotations
 
 import json
@@ -39,7 +40,7 @@ def _stream_tokens(message: str) -> Iterator[str]:
         for line in r.iter_lines():
             if not line or not line.startswith("data:"):
                 continue
-            data = line[len("data:"):].strip()
+            data = line[len("data:") :].strip()
             if data == "[DONE]":
                 return
             try:

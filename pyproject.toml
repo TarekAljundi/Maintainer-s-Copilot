@@ -51,6 +51,9 @@ packages = ["app", "model_server"]
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+ignore = ["E701", "E702"]
+
 [tool.pyright]
 include = ["app", "model_server", "evals"]
 typeCheckingMode = "basic"

@@ -5,6 +5,7 @@ Interface:
     cached(path) -> dict     # cache-only, raises if not pre-loaded
     health() -> bool         # used by boot check + runtime monitor
 """
+
 from __future__ import annotations
 
 import os

@@ -1,4 +1,5 @@
 """FastAPI app factory + lifespan w/ boot checks. See PRD §Boot-time refusal."""
+
 from __future__ import annotations
 
 import sys

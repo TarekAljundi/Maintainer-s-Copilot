@@ -1,4 +1,5 @@
 """VaultClient unit tests. hvac is mocked at the boundary."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock

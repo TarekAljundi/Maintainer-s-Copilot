@@ -1,4 +1,5 @@
 """Alembic env. Async SQLAlchemy with asyncpg."""
+
 from __future__ import annotations
 
 import asyncio

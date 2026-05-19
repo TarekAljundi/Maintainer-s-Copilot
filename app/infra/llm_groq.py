@@ -1,4 +1,5 @@
 """Groq LLM adapter. Model: llama-3.3-70b-versatile. Streaming tokens."""
+
 from __future__ import annotations
 
 from typing import AsyncIterator
