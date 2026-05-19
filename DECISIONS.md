@@ -16,9 +16,9 @@ Every decision backed by a number on the project's golden set. Numbers filled as
 
 ## Classifier
 - Fine-tuned: `microsoft/deberta-v3-small`, full FT + discriminative LR (encoder 2e-5, head 1e-4). + class-weighted cross-entropy (inverse frequency, mean-normalized). bf16, gradient checkpointing, bsz 8 + grad-accum 2 (eff 16). Test macro-F1 = **0.328** (acc 0.967). Val macro-F1 = 0.499.
-- Classical: TF-IDF (word 1-2 + char 3-5) + LogReg balanced. Macro-F1 = TBD.
-- LLM baseline: Groq `llama-3.3-70b-versatile`, 4-shot, temp=0, tool_use. Macro-F1 = TBD.
-- Deployment: TBD (filled after eval).
+- Classical: TF-IDF (word 1-2 + char_wb 3-5) + LogReg balanced, `C` tuned on val via 5-point grid (winner C=0.05, val macro-F1 = 0.498 — grid flat because val is 99% `question`). Test split shares deberta's. `docs` has zero train records so the classical model literally cannot emit `docs`.
+- LLM baseline: Groq `llama-3.3-70b-versatile`, 4-shot, temp=0, tool_use (single tool `classify_issue`, label enum forced). `docs` few-shot example synthesized — corpus has zero `docs` records in train.
+- Deployment: **deberta** (PRD-locked, boot check #5 SHA-pins the artifact). Numbers below expose the trade-off honestly.
 
 ### `docs` label is structurally sparse in the issue stream
 On the fastapi/fastapi corpus the `docs` label appears **772 times across all records but only on 11 closed issues** (the other 761 are pull requests, filtered out). After the bug > feature > docs > question tie-break, 7 of those 11 are taken by `feature`, leaving **4 final `docs` records** — all of which end up in the RAG held-out slice (newest 5%).
@@ -28,6 +28,29 @@ On the fastapi/fastapi corpus the `docs` label appears **772 times across all re
 
 ### Class-weighted loss (slice 03)
 Added inverse-frequency class weighting to the training-time CrossEntropy because the corpus is 97% `question`. Without it the model collapsed to "always predict question." Weights help val macro-F1 (0 → 0.499) but **don't transfer to test macro-F1** (still 0.328) — the test minority classes (1 bug, 13 features) need stronger generalization than the 38-39 training examples per class allow. The intervention is architecturally correct; the data ceiling remains.
+
+### Three-model comparison (slice 04, golden n=25)
+
+Golden set is 25 hand-curated records sampled from `rag_holdout.jsonl` (stratified 7/7/4/7 across bug/feature/docs/question, seed=42), separate from the time-stratified test split. Each model predicts on the same 25 inputs. Latency is per-record wall-clock; cost is computed from Groq's posted llama-3.3-70b-versatile rate ($0.59/1M in, $0.79/1M out, retrieved 2026-05-19).
+
+| Model | Accuracy | Macro-F1 | F1 bug | F1 feature | F1 docs | F1 question | p50 ms | p99 ms | $/1k |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| deberta (deployed) | 0.280 | 0.109 | 0.000 | 0.000 | 0.000 | 0.438 |  250.0 |  325.5 | $0.00 |
+| classical          | 0.320 | 0.203 | 0.000 | 0.400 | 0.000 | 0.414 |    3.6 |    9.8 | $0.00 |
+| llm (Groq 4-shot)  | 0.560 | 0.459 | 0.636 | 0.800 | 0.400 | 0.000 | 8488.2 |15219.9 | $1.10 |
+
+Confusion matrix — **deployed (deberta)**, rows = true, cols = pred, order = [bug, feature, docs, question]:
+```
+                pred:
+                bug  feature  docs  question
+true bug         0       0      0       7
+true feature     0       0      0       7
+true docs        0       0      0       4
+true question    0       0      0       7
+```
+deberta collapses to "always predict question" on golden (matches the corpus prior the time-stratified split learned, not the golden's balanced label distribution).
+
+**Defense (one line):** **deberta deployed** per PRD lock + boot check #5 (SHA-pinned artifact + model card + zero per-prediction cost), even though llm leads macro-F1 by +0.35 — llm's ~34× latency (8.5s vs 250ms) and $1.10/1k make it untenable as the always-on classifier; classical's 70× latency win doesn't recover the F1 gap (0.109 → 0.203). Numbers also surface the train-split prior the deberta learned: revisit weighting or an augmented `docs`/`bug`/`feature` slice before the Friday demo if budget allows (PRD §"Scope-cut priority").
 
 ## RAG
 - Embedding: `BAAI/bge-base-en-v1.5` vs `bge-small-en-v1.5` ablation. hit@5 = TBD vs TBD.
