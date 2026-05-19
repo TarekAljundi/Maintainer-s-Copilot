@@ -83,8 +83,8 @@ class Classifier:
         ).to(self.device)
         with self._lock:
             logits = self.model(**enc).logits
-        probs = torch.softmax(logits, dim=-1).squeeze(0).cpu().tolist()
-        idx = int(torch.argmax(logits, dim=-1).item())
+        probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(0).cpu().tolist()
+        idx = int(logits.argmax(dim=-1).item())
         return {
             "label": LABELS[idx],
             "confidence": float(probs[idx]),
