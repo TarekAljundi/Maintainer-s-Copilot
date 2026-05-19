@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
-      - run: uv sync --extra api --extra dev
+      - run: uv sync --extra api --extra evals --extra dev
       - run: uv run pytest tests/unit -q
 
   # TODO slice 08: wire tests/unit/test_redaction.py
