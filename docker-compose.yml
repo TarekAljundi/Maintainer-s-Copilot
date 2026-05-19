@@ -5,9 +5,10 @@ services:
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN}
       VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://127.0.0.1:8200
     ports: ["8200:8200"]
     healthcheck:
-      test: ["CMD", "vault", "status"]
+      test: ["CMD-SHELL", "VAULT_ADDR=http://127.0.0.1:8200 vault status >/dev/null 2>&1"]
       interval: 5s
       retries: 10
 
@@ -61,6 +62,19 @@ services:
       TELEMETRY_ENABLED: "false"
     ports: ["${LANGFUSE_PORT}:3000"]
 
+  vault-init:
+    image: hashicorp/vault:1.17
+    depends_on:
+      vault: { condition: service_healthy }
+    environment:
+      VAULT_ADDR: ${VAULT_ADDR}
+      VAULT_TOKEN: ${VAULT_TOKEN}
+      GROQ_API_KEY: ${GROQ_API_KEY:-placeholder}
+    entrypoint: ["/bin/sh", "/scripts/vault_seed.sh"]
+    volumes:
+      - ./scripts:/scripts:ro
+    restart: "no"
+
   migrate:
     build:
       context: .
@@ -70,6 +84,8 @@ services:
     environment:
       VAULT_ADDR: ${VAULT_ADDR}
       VAULT_TOKEN: ${VAULT_TOKEN}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
     restart: "no"
 
   model-server:
@@ -78,8 +94,8 @@ services:
       dockerfile: docker/model_server.Dockerfile
     ports: ["${MODEL_SERVER_PORT}:8001"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 10s
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://localhost:8001/health\", timeout=2).status==200 else 1)'"]
+      interval: 5s
       retries: 20
 
   api:
@@ -88,6 +104,7 @@ services:
       dockerfile: docker/api.Dockerfile
     depends_on:
       migrate: { condition: service_completed_successfully }
+      vault-init: { condition: service_completed_successfully }
       vault: { condition: service_healthy }
       model-server: { condition: service_healthy }
       langfuse: { condition: service_started }
@@ -95,13 +112,20 @@ services:
       VAULT_ADDR: ${VAULT_ADDR}
       VAULT_TOKEN: ${VAULT_TOKEN}
     ports: ["${API_PORT}:8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://localhost:8000/openapi.json\", timeout=2).status==200 else 1)'"]
+      interval: 5s
+      retries: 20
     restart: "no"
 
   chatbot:
     build:
       context: .
       dockerfile: docker/streamlit.Dockerfile
-    depends_on: [api]
+    depends_on:
+      api: { condition: service_healthy }
+    environment:
+      API_BASE: http://api:8000
     ports: ["${STREAMLIT_PORT}:8501"]
 
   widget:

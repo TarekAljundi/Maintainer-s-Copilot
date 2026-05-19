@@ -40,6 +40,13 @@ streamlit = ["streamlit", "httpx"]
 evals = ["ragas==0.2.5", "scikit-learn", "datasets", "langchain-groq"]
 dev = ["pytest", "pytest-asyncio", "ruff", "pyright"]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app", "model_server"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
