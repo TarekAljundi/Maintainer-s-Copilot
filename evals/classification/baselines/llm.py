@@ -70,7 +70,7 @@ CLASSIFY_TOOL = {
 }
 
 SYSTEM_PROMPT = (
-    "You triage GitHub issues for the fastapi/fastapi repository. "
+    "You triage GitHub issues for the pandas-dev/pandas repository. "
     "For every issue, call the `classify_issue` tool with exactly one of: "
     "bug, feature, docs, question. Use the description in the tool schema to choose. "
     "Never reply in free text — only via the tool."

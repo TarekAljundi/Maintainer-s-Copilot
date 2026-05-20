@@ -47,7 +47,7 @@ def test_classical_pipeline_fits_and_predicts(tmp_path: Path) -> None:
         {"title": "add option to disable docs", "body": "would be useful", "label": "feature"},
         {"title": "support python 3.13", "body": "please add", "label": "feature"},
         {"title": "how do I use Depends?", "body": "tutorial unclear", "label": "question"},
-        {"title": "what is FastAPI?", "body": "newbie q", "label": "question"},
+        {"title": "what is pandas?", "body": "newbie q", "label": "question"},
     ]
     val = [
         {"title": "broken on 0.110", "body": "regression", "label": "bug"},
