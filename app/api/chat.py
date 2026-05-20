@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.api.auth import current_principal, principal_user_id
+from app.api.auth import AnonWidgetSession, current_principal, principal_user_id
 from app.domain.exceptions import AppError
 from app.infra import tracing
 from app.infra.logging import get_logger
@@ -34,9 +34,18 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
 
 
-async def _sse(req: ChatRequest, user_id: str | None) -> AsyncIterator[bytes]:
+async def _sse(
+    req: ChatRequest,
+    user_id: str | None,
+    widget_session_id: str | None = None,
+) -> AsyncIterator[bytes]:
     try:
-        async for event in run_turn(req.message, req.conversation_id, user_id=user_id):
+        async for event in run_turn(
+            req.message,
+            req.conversation_id,
+            user_id=user_id,
+            widget_session_id=widget_session_id,
+        ):
             yield f"data: {json.dumps(event)}\n\n".encode()
     except AppError as exc:
         log.warning(
@@ -69,4 +78,10 @@ async def chat(
     principal=Depends(current_principal),
 ) -> StreamingResponse:
     user_id = principal_user_id(principal)
-    return StreamingResponse(_sse(req, user_id), media_type="text/event-stream")
+    widget_session_id = (
+        principal.widget_session_id if isinstance(principal, AnonWidgetSession) else None
+    )
+    return StreamingResponse(
+        _sse(req, user_id, widget_session_id=widget_session_id),
+        media_type="text/event-stream",
+    )

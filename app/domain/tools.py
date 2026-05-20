@@ -24,8 +24,11 @@ from app.infra.model_server_client import ModelServerClient
 
 
 # Set by ChatbotService.run_turn before tool dispatch. write_memory reads
-# this to scope the new memory row to the calling user.
+# whichever of these is set to scope the new memory row.
 current_user_id: ContextVar[str | None] = ContextVar("current_user_id", default=None)
+current_widget_session_id: ContextVar[str | None] = ContextVar(
+    "current_widget_session_id", default=None
+)
 current_conversation_id: ContextVar[str | None] = ContextVar(
     "current_conversation_id", default=None
 )
@@ -275,14 +278,14 @@ async def _tool_search_knowledge(
 
 
 async def _tool_write_memory(summary: str, entities: list[str] | None = None) -> dict:
-    """Persist an episodic memory row + audit row for the current user.
+    """Persist an episodic memory row + audit row for the current principal.
 
-    Reads `current_user_id` from the ChatbotService-set ContextVar. Widget
-    sessions don't have a user_id (slice 13's widget_session_id keying lands
-    later) — so we return a tool-visible refusal instead of writing.
+    Reads `current_user_id` xor `current_widget_session_id` (set by
+    ChatbotService.run_turn). Both unset = unauthenticated caller; refuse.
     """
     user_id = current_user_id.get()
-    if not user_id:
+    widget_session_id = current_widget_session_id.get()
+    if not user_id and not widget_session_id:
         raise MemoryWriteFailure("requires_authed_user")
 
     from app.services.memory import default_service
@@ -290,6 +293,7 @@ async def _tool_write_memory(summary: str, entities: list[str] | None = None) ->
     svc = default_service()
     mid = await svc.write(
         user_id=user_id,
+        widget_session_id=widget_session_id,
         summary=summary,
         entities=entities,
         conversation_id=current_conversation_id.get(),

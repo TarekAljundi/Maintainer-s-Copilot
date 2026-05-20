@@ -43,18 +43,20 @@ class MemoryService:
     async def write(
         self,
         *,
-        user_id: str,
+        user_id: str | None = None,
+        widget_session_id: str | None = None,
         summary: str,
         entities: list[str] | None = None,
         source_msg_ids: list[str] | None = None,
         conversation_id: str | None = None,
     ) -> str:
-        """Embed + persist a memory row + audit row atomically.
-
-        Returns the new memory id. Wraps repository / model-server failures
-        as `MemoryWriteFailure` so the chatbot loop converts them to the
-        `{ok:false, error:"tool_failure.memory"}` envelope.
+        """Embed + persist a memory row + audit row atomically. Scoped by
+        whichever of `user_id` (authed) or `widget_session_id` (anon) is set.
         """
+        if (user_id and widget_session_id) or (not user_id and not widget_session_id):
+            raise MemoryWriteFailure(
+                "memory write requires exactly one of user_id or widget_session_id"
+            )
         if not summary or not summary.strip():
             raise MemoryWriteFailure("summary is empty")
 
@@ -72,6 +74,7 @@ class MemoryService:
         try:
             mid = await memory_repo.insert_memory_with_audit(
                 user_id=user_id,
+                widget_session_id=widget_session_id,
                 conversation_id=conversation_id,
                 summary=redacted,
                 entities=entities,
@@ -87,18 +90,19 @@ class MemoryService:
     async def recall(
         self,
         *,
-        user_id: str,
+        user_id: str | None = None,
+        widget_session_id: str | None = None,
         query: str,
         top_k: int = 5,
         min_similarity: float = 0.6,
     ) -> list[RecalledMemory]:
-        """Top-k user-scoped recall by cosine similarity.
+        """Top-k recall scoped to whichever discriminator is set.
 
         Recall failures are not fatal — callers (the chatbot's auto-recall
-        hook) treat an empty list as "no memories" and proceed. Errors are
-        re-raised here so tests can observe them; the chatbot wraps in a
-        try/except.
+        hook) treat an empty list as "no memories" and proceed.
         """
+        if (user_id and widget_session_id) or (not user_id and not widget_session_id):
+            return []
         if not query.strip():
             return []
 
@@ -108,6 +112,7 @@ class MemoryService:
 
         rows = await memory_repo.find_similar(
             user_id=user_id,
+            widget_session_id=widget_session_id,
             query_embedding=embeddings[0],
             top_k=top_k,
             min_similarity=min_similarity,
@@ -131,20 +136,18 @@ class MemoryService:
             try:
                 await memory_repo.touch_last_recalled(ids)
             except Exception:
-                # Best-effort: the recall is still valid even if we couldn't
-                # bump last_recalled_at.
                 pass
+            actor = user_id if user_id else f"widget_session:{widget_session_id}"
             try:
                 await write_audit(
-                    actor=user_id,
+                    actor=actor,
                     action="memory_recall",
                     target_type="memory",
                     target_id=None,
                     payload={"ids": ids, "top_k": top_k, "min_similarity": min_similarity},
                 )
             except Exception:
-                # Audit logging is a side-effect, not a correctness gate for the
-                # chat turn (per slice plan §C).
+                # Audit logging is a side-effect, not a correctness gate.
                 pass
 
         return result
