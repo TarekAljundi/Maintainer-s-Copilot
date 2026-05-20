@@ -87,20 +87,22 @@ The original fastapi pull surfaced a data ceiling that motivated the swap.
   deberta collapsed to "always predict question" on golden — matched the 97% question prior in the time-stratified train split, not the golden's balanced label distribution. This collapse is the headline reason the corpus was swapped.
 
 ## RAG
-- Embedding: `BAAI/bge-base-en-v1.5` vs `bge-small-en-v1.5` ablation. hit@5 = TBD vs TBD.
-- Chunking: content-aware dual (header-recursive docs, per-comment issues) + parent-document.
-- Hybrid: Postgres FTS + dense, weighted RRF (k=60). Tuned weights = TBD.
-- Reranker: `BAAI/bge-reranker-base`.
-- Query xform: HyDE on dense side.
-- Metadata filters: content_type, labels, is_answer, breadcrumb_prefix, post-filter w/ over-fetch.
+- Embedding: `BAAI/bge-base-en-v1.5` (production). Ablation: `bge-small-en-v1.5` ties on hit@5 (0.440), beats by +0.074 MRR@10 (0.322 vs 0.248). bge-base kept because the full stack (rerank+HyDE+parent) reaches MRR=0.328 — above bge-small naive — and the embedder is shared with the slice-11 memory service.
+- Chunking: content-aware dual (header-recursive docs, per-comment issues) + parent-document. 1,696 docs chunks (280 parents + 1,416 children/standalone) + 1,205 issue chunks at pandas SHA `d2dc148`.
+- Hybrid: Postgres FTS + dense, weighted RRF (k=60). **Tuned weights = (w_d=0.5, w_s=1.0)**, picked by MRR@10 on the grid `{(1.0,0.5),(1.0,1.0),(1.0,1.5),(0.5,1.0)}` (see `reports/rrf_grid.json`). Sparse outweighs dense on this golden because question wording overlaps lexically with both docs section bodies and maintainer-answer comments.
+- Reranker: `BAAI/bge-reranker-base` cross-encoder over the fused top-20 → top-5.
+- Query xform: HyDE on the dense side only (sparse keeps original query — HyDE'd passages lose keyword signal). Prompt at `prompts/hyde.md`; results cached at `data/cache/hyde/{sha256(query)}.txt`.
+- Metadata filters: `content_types`, `labels`, `is_answer`, `min_closed_at`, `breadcrumb_prefix`. Post-filter with over-fetch (top-200 each side → fuse 20 → rerank 5) so HNSW isn't restricted to a tiny subset.
 
-## RAG numbers (TBD)
+## RAG numbers
 | Stack | hit@5 | MRR@10 | faithfulness | answer_relevancy |
-|---|---|---|---|---|
-| Naive (fixed-512 + dense) | | | n/a | n/a |
-| + Hybrid (FTS + RRF) | | | n/a | n/a |
-| + Rerank | | | n/a | n/a |
-| + HyDE + parent-doc | | | | |
+|---|---:|---:|---:|---:|
+| Naive (dense only)            | 0.440 | 0.248 | n/a | n/a |
+| + Hybrid (FTS + weighted RRF) | 0.440 | 0.285 | n/a | n/a |
+| + Rerank                      | 0.480 | 0.308 | n/a | n/a |
+| + HyDE + parent-doc (**full**) | **0.520** | **0.328** | smoke 0.89 (n=1) | smoke 0.89 |
+
+Full 25-Q RAGAS generation eval pending Groq TPD reset — see EVALS.md §"Generation eval (RAGAS)".
 
 ## Chatbot
 - LLM: Groq `llama-3.3-70b-versatile`. All slots.

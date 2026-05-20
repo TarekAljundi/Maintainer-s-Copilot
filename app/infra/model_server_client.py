@@ -1,11 +1,10 @@
 """HTTP client to model-server. Maps failures -> ToolFailure subclasses.
 
 Interface:
-    classify(text), extract(text), embed(texts, mode='query'|'passage')
+    classify(text), extract(text), embed(texts, mode), rerank(query, passages)
 
-Slice 05: classify + extract + health. Slice 06: embed.
-rerank lands with slice 07; summarize() is NOT a model-server hop — it lives
-in app/services/summarizer.py.
+Slice 05: classify + extract + health. Slice 06: embed. Slice 07: rerank.
+summarize() is NOT a model-server hop — it lives in app/services/summarizer.py.
 """
 
 from __future__ import annotations
@@ -75,3 +74,19 @@ class ModelServerClient:
             except (httpx.HTTPError, httpx.RequestError) as exc:
                 last_exc = exc
         raise RAGRetrievalFailure(f"model-server /embed failed: {last_exc}") from last_exc
+
+    def rerank(self, query: str, passages: list[str]) -> list[float]:
+        """POST /rerank -> per-passage cross-encoder scores (higher = more relevant)."""
+        last_exc: Exception | None = None
+        for _ in range(2):
+            try:
+                r = httpx.post(
+                    f"{self._base}/rerank",
+                    json={"query": query, "passages": passages},
+                    timeout=self._timeout,
+                )
+                r.raise_for_status()
+                return r.json()["scores"]
+            except (httpx.HTTPError, httpx.RequestError) as exc:
+                last_exc = exc
+        raise RAGRetrievalFailure(f"model-server /rerank failed: {last_exc}") from last_exc

@@ -41,7 +41,7 @@ model-server = [
     "hvac",
 ]
 streamlit = ["streamlit", "httpx"]
-evals = ["ragas==0.2.5", "scikit-learn", "datasets", "langchain-groq", "tensorboard", "torch", "transformers"]
+evals = ["ragas==0.2.5", "scikit-learn", "scipy", "datasets", "langchain-groq", "nltk", "tensorboard", "torch", "transformers"]
 dev = ["pytest", "pytest-asyncio", "ruff", "pyright"]
 
 [build-system]

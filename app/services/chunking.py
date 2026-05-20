@@ -5,12 +5,17 @@ Docs (RST):
   - Sub-split sections > 500 tokens with 50-token overlap.
   - Drop chunks < 50 tokens.
   - Code blocks preserved verbatim (contrast with classifier's <CODE> swap).
+  - Parent-document retrieval: windowed sections also emit a parent chunk
+    (full section text); each child carries parent_id (slice 07).
 
 Issues (per-comment):
   - Chunk 1: "Issue #N: <title>\\n\\n<body>".
   - Each top-level comment is one chunk.
   - Comments < 30 tokens merged with prior.
   - is_answer = comment author_association in {OWNER, MEMBER, COLLABORATOR}.
+  - Each comment is the parent of itself (no further sub-windowing in slice 07);
+    parent_id stays NULL — the retrieval pipeline treats NULL-parent chunks
+    as their own parent.
 
 Token counting uses the bge-base tokenizer so the budget matches the embedder.
 """
@@ -22,7 +27,7 @@ import re
 from functools import lru_cache
 from typing import Iterable
 
-from app.domain.chunks import Chunk, stable_chunk_id
+from app.domain.chunks import Chunk, stable_chunk_id, stable_parent_id
 
 DOCS_MAX_TOKENS = 500
 DOCS_OVERLAP_TOKENS = 50
@@ -119,7 +124,13 @@ def _windowed(token_ids: list[int], max_tokens: int, overlap: int) -> list[list[
 
 
 def chunk_docs(rst_text: str, source_id: str) -> list[Chunk]:
-    """source_id is the RST file path relative to the docs root."""
+    """source_id is the RST file path relative to the docs root.
+
+    Slice 07: windowed sections also emit a parent chunk carrying the full
+    section text; each child references it via parent_id. Non-windowed
+    sections emit a single chunk with parent_id=None (self-parent semantics).
+    Existing slice-06 child chunk IDs are unchanged.
+    """
     chunks: list[Chunk] = []
     seq = 0
     tok = _tokenizer()
@@ -144,6 +155,20 @@ def chunk_docs(rst_text: str, source_id: str) -> list[Chunk]:
             )
             seq += 1
             continue
+        # Windowed path: emit a parent chunk carrying the full section text,
+        # then each windowed child with parent_id set.
+        parent_id = stable_parent_id("docs", source_id, anchor)
+        chunks.append(
+            Chunk(
+                id=parent_id,
+                content_type="docs",
+                source_id=source_id,
+                chunk_seq=-1,
+                text=body,
+                breadcrumb=breadcrumb,
+                section_path=f"{source_id}#{anchor}",
+            )
+        )
         for window in _windowed(token_ids, DOCS_MAX_TOKENS, DOCS_OVERLAP_TOKENS):
             if len(window) < DOCS_MIN_TOKENS:
                 continue
@@ -156,6 +181,7 @@ def chunk_docs(rst_text: str, source_id: str) -> list[Chunk]:
                     source_id=source_id,
                     chunk_seq=seq,
                     text=piece,
+                    parent_id=parent_id,
                     breadcrumb=breadcrumb,
                     section_path=f"{source_id}#{anchor}",
                 )

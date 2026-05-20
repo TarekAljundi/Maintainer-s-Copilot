@@ -79,7 +79,12 @@ SEARCH_KNOWLEDGE_SCHEMA: dict = {
             "USE WHEN: the user asks a project question ('how do I X', 'why does Y happen', "
             "'what does Z do', or anything about pandas behavior, docs, or past issues). "
             "DO NOT USE WHEN: the user pastes raw issue text and asks for a classification, "
-            "summary, or entity extraction — those are handled by other tools."
+            "summary, or entity extraction — those are handled by other tools. "
+            "FILTERS: pass `content_types=['docs']` for API/usage how-tos; "
+            "`content_types=['issue']` + `is_answer=true` for 'has this been fixed' / 'past "
+            "maintainer decision' questions; `breadcrumb_prefix='User Guide > IO'` to scope "
+            "within a docs subtree; `labels=['Bug']` to filter resolved-issue search by "
+            "the issue's GitHub labels."
         ),
         "parameters": {
             "type": "object",
@@ -87,6 +92,41 @@ SEARCH_KNOWLEDGE_SCHEMA: dict = {
                 "query": {
                     "type": "string",
                     "description": "Natural-language search query.",
+                },
+                "content_types": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["docs", "issue"]},
+                    "description": ("Restrict search to docs and/or issues. Omit for both."),
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Only return issue chunks tagged with ANY of these GitHub labels "
+                        "(e.g. ['Bug'], ['Enhancement', 'IO']). Ignored on docs results."
+                    ),
+                },
+                "is_answer": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, only return issue comments from a maintainer "
+                        "(OWNER/MEMBER/COLLABORATOR). Use for 'what did the maintainers say' "
+                        "questions."
+                    ),
+                },
+                "min_closed_at": {
+                    "type": "string",
+                    "description": (
+                        "ISO-8601 timestamp; only return issues closed on or after this "
+                        "date. Use for 'recently fixed' questions."
+                    ),
+                },
+                "breadcrumb_prefix": {
+                    "type": "string",
+                    "description": (
+                        "Restrict docs results to sections whose breadcrumb starts with "
+                        "this prefix (e.g. 'User Guide > IO tools', 'Group by')."
+                    ),
                 },
             },
             "required": ["query"],
@@ -143,11 +183,26 @@ def _tool_summarize_thread(text: str) -> dict:
     return {"ok": True, "summary": summary}
 
 
-async def _tool_search_knowledge(query: str) -> dict:
+async def _tool_search_knowledge(
+    query: str,
+    content_types: list[str] | None = None,
+    labels: list[str] | None = None,
+    is_answer: bool | None = None,
+    min_closed_at: str | None = None,
+    breadcrumb_prefix: str | None = None,
+) -> dict:
+    from app.domain.chunks import RetrievalFilters
     from app.services.rag import RAGService
 
+    filters = RetrievalFilters(
+        content_types=content_types,
+        labels=labels,
+        is_answer=is_answer,
+        min_closed_at=min_closed_at,
+        breadcrumb_prefix=breadcrumb_prefix,
+    )
     svc = RAGService()
-    hits = await svc.retrieve(query, top_k=5)
+    hits = await svc.retrieve(query, top_k=5, filters=filters)
     return {
         "ok": True,
         "results": [
