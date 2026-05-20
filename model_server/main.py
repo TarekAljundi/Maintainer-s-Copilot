@@ -1,9 +1,9 @@
-"""FastAPI inference server. Loads classifier + NER + embedder at startup.
+"""FastAPI inference server. Loads classifier + NER + embedder + reranker at startup.
 
-Slice 05: classifier + NER wired. Slice 06: embedder wired (bge-base).
-Reranker stub returns False on /health until slice 07.
+Slice 05: classifier + NER. Slice 06: embedder (bge-base).
+Slice 07: reranker (bge-reranker-base) wired.
 
-Endpoints: /health, /classify, /extract, /embed
+Endpoints: /health, /classify, /extract, /embed, /rerank
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from model_server.classifier import Classifier
 from model_server.embedder import Embedder
 from model_server.ner import NERService
+from model_server.reranker import Reranker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ log = logging.getLogger(__name__)
 _classifier: Classifier | None = None
 _ner: NERService | None = None
 _embedder: Embedder | None = None
+_reranker: Reranker | None = None
 
 
 @asynccontextmanager
@@ -52,6 +54,13 @@ async def lifespan(app: FastAPI):
             _embedder = Embedder()
         except Exception:
             log.exception("embedder load failed; /health will report embedder_loaded=false")
+    if os.environ.get("MC_SKIP_RERANKER_LOAD") == "1":
+        log.warning("MC_SKIP_RERANKER_LOAD=1 — serving with reranker_loaded=false")
+    else:
+        try:
+            _reranker = Reranker()
+        except Exception:
+            log.exception("reranker load failed; /health will report reranker_loaded=false")
     yield
 
 
@@ -72,13 +81,18 @@ class EmbedRequest(BaseModel):
     mode: str = "passage"
 
 
+class RerankRequest(BaseModel):
+    query: str
+    passages: list[str]
+
+
 @app.get("/health")
 def health() -> dict:
     return {
         "classifier_loaded": _classifier is not None,
         "weights_sha": _classifier.weights_sha if _classifier else "",
         "ner_loaded": _ner is not None,
-        "reranker_loaded": False,
+        "reranker_loaded": _reranker is not None,
         "embedder_loaded": _embedder is not None,
     }
 
@@ -104,3 +118,10 @@ def embed(req: EmbedRequest) -> dict:
     if req.mode not in ("query", "passage"):
         raise HTTPException(status_code=400, detail="mode must be 'query' or 'passage'")
     return {"embeddings": _embedder.encode(req.texts, mode=req.mode)}
+
+
+@app.post("/rerank")
+def rerank(req: RerankRequest) -> dict:
+    if _reranker is None:
+        raise HTTPException(status_code=503, detail="reranker_not_loaded")
+    return {"scores": _reranker.score(req.query, req.passages)}

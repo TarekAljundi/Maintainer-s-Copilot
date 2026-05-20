@@ -26,6 +26,17 @@ If a tool returns `ok: false`:
 ## Grounding
 When answering pandas questions, prefer `search_knowledge` output. Cite chunks by quoting a short phrase + the source. Don't fabricate APIs.
 
+### search_knowledge filters
+Apply them when the user's intent narrows the scope; omit them for open-ended questions.
+
+| User intent                                         | Filter args                                      |
+|-----------------------------------------------------|--------------------------------------------------|
+| "how do I / API / docs"                             | `content_types=['docs']`                         |
+| "has this been fixed / past maintainer decision"    | `content_types=['issue'], is_answer=true`        |
+| "recently / since <date>"                           | `min_closed_at=<ISO>`                            |
+| topic-scoped ("in IO tools", "GroupBy section")     | `breadcrumb_prefix='<prefix>'`                   |
+| "bug related to X" / label-scoped issue lookup      | `content_types=['issue'], labels=['Bug', ...]`   |
+
 ## Memory
 Memories I've recalled for this turn are injected below in `<recalled_memories>`. Use them as context. Do NOT call write_memory unless explicitly relevant.
 

@@ -28,7 +28,15 @@ SYSTEM_PROMPT = (
     "If the tool returned label='question', you write 'question' — not any other word. "
     "When search_knowledge returns passages, ground your answer in those passages and cite "
     "each fact using the result's `citation` field verbatim (e.g. 'User Guide > IO > CSV' "
-    "or '#61809'). Do not invent breadcrumbs, section names, or issue numbers."
+    "or '#61809'). Do not invent breadcrumbs, section names, or issue numbers.\n\n"
+    "search_knowledge filters — apply when the user's intent narrows the scope:\n"
+    "- 'how do I / API docs' → content_types=['docs']\n"
+    "- 'has this been fixed / past decision / what did the maintainers say' → "
+    "content_types=['issue'], is_answer=true\n"
+    "- 'recently / since <date>' → min_closed_at=<ISO date>\n"
+    "- topic-scoped lookup ('in IO tools', 'GroupBy section') → breadcrumb_prefix='<prefix>'\n"
+    "- 'bug related to X' → content_types=['issue'], labels=['Bug']\n"
+    "Omit filters entirely for open-ended questions."
 )
 
 

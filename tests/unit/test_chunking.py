@@ -61,6 +61,53 @@ def test_chunk_docs_stable_ids():
     assert [c.id for c in a] == [c.id for c in b]
 
 
+def test_chunk_docs_non_windowed_section_has_no_parent():
+    """Sections at or below DOCS_MAX_TOKENS emit a single chunk with parent_id=None."""
+    text = "Top\n===\n" + ("word " * 60) + "\n"  # ~60 tokens, single chunk
+    chunks = chunking.chunk_docs(text, "x.rst")
+    assert len(chunks) == 1
+    assert chunks[0].parent_id is None
+    assert chunks[0].chunk_seq == 0
+
+
+def test_chunk_docs_windowed_section_emits_parent_first():
+    """Long sections emit a parent chunk (chunk_seq=-1) followed by N children
+    (each carrying parent_id), preserving slice-06 child IDs."""
+    long_body = " ".join(f"w{i}" for i in range(700))  # 700 tokens > DOCS_MAX_TOKENS
+    text = f"Top\n===\n{long_body}\n"
+    chunks = chunking.chunk_docs(text, "x.rst")
+
+    parents = [c for c in chunks if c.chunk_seq == -1]
+    children = [c for c in chunks if c.chunk_seq >= 0]
+
+    assert len(parents) == 1
+    assert parents[0].parent_id is None
+    assert parents[0].text == long_body
+    assert parents[0].section_path == "x.rst#top"
+
+    assert len(children) >= 2  # 700 / (500-50) > 1
+    for child in children:
+        assert child.parent_id == parents[0].id
+        assert child.section_path == "x.rst#top"
+
+    # parent emitted before children
+    assert chunks[0] is parents[0]
+
+
+def test_chunk_issue_chunks_have_null_parent():
+    """Issue chunks self-parent (parent_id=None); slice-07 doesn't sub-window comments."""
+    record = {
+        "number": 99,
+        "title": "x",
+        "body": "x " * 50,
+        "labels": [],
+        "closed_at": None,
+        "comments": [{"body": "y " * 50, "author_association": "MEMBER"}],
+    }
+    chunks = chunking.chunk_issue(record)
+    assert all(c.parent_id is None for c in chunks)
+
+
 def test_chunk_issue_merges_tiny_comment():
     record = {
         "number": 42,
