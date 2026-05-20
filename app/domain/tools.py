@@ -15,10 +15,19 @@ return value when it's a coroutine.
 from __future__ import annotations
 
 import inspect
+from contextvars import ContextVar
 from typing import Any, Callable
 
-from app.domain.exceptions import ToolFailure
+from app.domain.exceptions import MemoryWriteFailure, ToolFailure
 from app.infra.model_server_client import ModelServerClient
+
+
+# Set by ChatbotService.run_turn before tool dispatch. write_memory reads
+# this to scope the new memory row to the calling user.
+current_user_id: ContextVar[str | None] = ContextVar("current_user_id", default=None)
+current_conversation_id: ContextVar[str | None] = ContextVar(
+    "current_conversation_id", default=None
+)
 
 
 CLASSIFY_ISSUE_SCHEMA: dict = {
@@ -136,6 +145,52 @@ SEARCH_KNOWLEDGE_SCHEMA: dict = {
 }
 
 
+WRITE_MEMORY_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "write_memory",
+        "description": (
+            "Persist an episodic memory about the current user. The memory is "
+            "available in future conversations as auto-recalled context. "
+            "USE WHEN: the user explicitly asks to remember/save/note/track "
+            "something, OR explicitly states a decision, investigation focus, "
+            "or ongoing topic they want carried across sessions (e.g. 'I'm "
+            "focused on middleware regressions this week', 'we decided to drop "
+            "lazy imports', 'remember that I prefer typed configs'). "
+            "DO NOT USE WHEN: the user is chit-chatting, asking a project "
+            "question, asking for a classification, summary, or entity "
+            "extraction — those use other tools, not memory. Do not auto-"
+            "summarize the user's previous turns into memories; only fire on "
+            "an explicit ask or explicit statement of a long-running focus."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "description": (
+                        "One- or two-sentence statement of the fact, decision, "
+                        "or focus area to remember. Written in the third person "
+                        "if possible (e.g. 'User is focused on X this week')."
+                    ),
+                },
+                "entities": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional short tag list (free-form text — function "
+                        "names, module paths, topic keywords) that helps later "
+                        "recall filtering. 0-10 entries is typical."
+                    ),
+                },
+            },
+            "required": ["summary"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 SUMMARIZE_THREAD_SCHEMA: dict = {
     "type": "function",
     "function": {
@@ -218,6 +273,29 @@ async def _tool_search_knowledge(
     }
 
 
+async def _tool_write_memory(summary: str, entities: list[str] | None = None) -> dict:
+    """Persist an episodic memory row + audit row for the current user.
+
+    Reads `current_user_id` from the ChatbotService-set ContextVar. Widget
+    sessions don't have a user_id (slice 13's widget_session_id keying lands
+    later) — so we return a tool-visible refusal instead of writing.
+    """
+    user_id = current_user_id.get()
+    if not user_id:
+        raise MemoryWriteFailure("requires_authed_user")
+
+    from app.services.memory import default_service
+
+    svc = default_service()
+    mid = await svc.write(
+        user_id=user_id,
+        summary=summary,
+        entities=entities,
+        conversation_id=current_conversation_id.get(),
+    )
+    return {"ok": True, "memory_id": mid}
+
+
 def _wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
     """Convert any ToolFailure into the LLM-visible {ok:false} envelope.
 
@@ -249,10 +327,12 @@ TOOL_SCHEMAS: list[dict] = [
     EXTRACT_ENTITIES_SCHEMA,
     SUMMARIZE_THREAD_SCHEMA,
     SEARCH_KNOWLEDGE_SCHEMA,
+    WRITE_MEMORY_SCHEMA,
 ]
 TOOL_DISPATCH: dict[str, Callable[..., Any]] = {
     "classify_issue": _wrap(_tool_classify_issue),
     "extract_entities": _wrap(_tool_extract_entities),
     "summarize_thread": _wrap(_tool_summarize_thread),
     "search_knowledge": _wrap(_tool_search_knowledge),
+    "write_memory": _wrap(_tool_write_memory),
 }

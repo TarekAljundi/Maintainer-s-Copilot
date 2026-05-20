@@ -1,15 +1,32 @@
-"""Chat SSE integration test. Groq client + tool dispatch are monkey-patched."""
+"""Chat SSE integration test. Groq client + tool dispatch + auth dep are
+monkey-patched."""
 
 from __future__ import annotations
 
 import json
 from typing import Any, AsyncIterator
+from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.auth import current_principal
 from app.api.chat import router as chat_router
+
+
+class _FakeUser:
+    """Minimal stand-in for fastapi-users User in tests."""
+
+    def __init__(self, uid: str = "11111111-1111-1111-1111-111111111111") -> None:
+        self.id = uid
+        self.email = "test@example.com"
+        self.role = "user"
+        self.is_active = True
+
+
+async def _fake_principal() -> _FakeUser:
+    return _FakeUser()
 
 
 async def _fake_stream_no_tool(
@@ -47,12 +64,22 @@ def _make_fake_stream_with_tool():
     return stream
 
 
+def _build_app() -> FastAPI:
+    app = FastAPI()
+    app.include_router(chat_router, prefix="/api")
+    app.dependency_overrides[current_principal] = _fake_principal
+    return app
+
+
 @pytest.fixture
 def client_no_tool(monkeypatch) -> TestClient:
     monkeypatch.setattr("app.services.chatbot.stream_chat_with_tools", _fake_stream_no_tool)
-    app = FastAPI()
-    app.include_router(chat_router, prefix="/api")
-    return TestClient(app)
+    # Stub out memory recall so test doesn't need a real Postgres.
+    async def _no_recall(*_a, **_kw):
+        return []
+
+    monkeypatch.setattr("app.services.chatbot._recall", _no_recall)
+    return TestClient(_build_app())
 
 
 @pytest.fixture
@@ -60,14 +87,17 @@ def client_with_tool(monkeypatch) -> TestClient:
     monkeypatch.setattr(
         "app.services.chatbot.stream_chat_with_tools", _make_fake_stream_with_tool()
     )
+
+    async def _no_recall(*_a, **_kw):
+        return []
+
+    monkeypatch.setattr("app.services.chatbot._recall", _no_recall)
     monkeypatch.setitem(
         __import__("app.domain.tools", fromlist=["TOOL_DISPATCH"]).TOOL_DISPATCH,
         "classify_issue",
         lambda **kw: {"ok": True, "label": "bug", "confidence": 0.91},
     )
-    app = FastAPI()
-    app.include_router(chat_router, prefix="/api")
-    return TestClient(app)
+    return TestClient(_build_app())
 
 
 def _read_events(r) -> tuple[list[dict], bool]:
@@ -85,7 +115,7 @@ def _read_events(r) -> tuple[list[dict], bool]:
 
 
 def test_sse_direct_answer_no_tool(client_no_tool: TestClient):
-    payload = {"user_id": "u1", "message": "hi"}
+    payload = {"message": "hi"}
     with client_no_tool.stream("POST", "/api/chat", json=payload) as r:
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("text/event-stream")
@@ -99,7 +129,7 @@ def test_sse_direct_answer_no_tool(client_no_tool: TestClient):
 
 
 def test_sse_dispatches_tool_then_streams_final(client_with_tool: TestClient):
-    payload = {"user_id": "u1", "message": "classify this issue"}
+    payload = {"message": "classify this issue"}
     with client_with_tool.stream("POST", "/api/chat", json=payload) as r:
         events, terminator = _read_events(r)
     starts = [e for e in events if e["type"] == "tool_call_start"]
