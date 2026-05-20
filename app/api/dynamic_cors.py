@@ -102,7 +102,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         origins = await _allowed_origins(widget_id)
-        matched = origin if origin in origins else None
+        origin_n = (origin or "").rstrip("/")
+        matched = origin if any((o or "").rstrip("/") == origin_n for o in origins) else None
 
         if request.method == "OPTIONS" and matched is not None:
             # Preflight: respond directly with the CORS headers.

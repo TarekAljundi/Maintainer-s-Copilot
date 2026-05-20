@@ -138,6 +138,18 @@ def _service() -> WidgetConfigService:
     return widget_svc()
 
 
+def _normalize_origins(origins: list[str]) -> list[str]:
+    """Strip trailing slashes + whitespace + drop empties so CSP/CORS
+    comparisons (which use the browser's `window.location.origin`, no trailing
+    slash) match exactly."""
+    cleaned: list[str] = []
+    for o in origins:
+        s = (o or "").strip().rstrip("/")
+        if s:
+            cleaned.append(s)
+    return cleaned
+
+
 def _public_base(request: Request) -> str:
     """Base URL to embed in copy-paste snippets. `PUBLIC_API_BASE` env wins;
     else fall back to the admin's `Host` header so local dev works zero-config."""
@@ -161,7 +173,7 @@ async def create_widget(
         )
     cfg = await _service().create(
         name=body.name,
-        allowed_origins=body.allowed_origins,
+        allowed_origins=_normalize_origins(body.allowed_origins),
         primary_color=body.primary_color,
         position=body.position,
         greeting_text=body.greeting_text,
@@ -206,6 +218,8 @@ async def patch_widget(
     admin: User = Depends(require_admin),
 ) -> WidgetView:
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "allowed_origins" in patch:
+        patch["allowed_origins"] = _normalize_origins(patch["allowed_origins"])
     if "position" in patch and patch["position"] not in ALLOWED_POSITIONS:
         raise HTTPException(
             status_code=422, detail=f"position must be one of {list(ALLOWED_POSITIONS)}"
