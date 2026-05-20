@@ -76,16 +76,25 @@ def _render_recalled(recalled: list[Any]) -> str:
 
 
 @tracing.observe(as_type="retrieval")
-async def _recall(user_id: str | None, query: str) -> list[Any]:
-    """Best-effort recall. Errors are swallowed — memory is augmentation, not
-    correctness (slice plan §F)."""
-    if not user_id:
+async def _recall(
+    user_id: str | None,
+    query: str,
+    widget_session_id: str | None = None,
+) -> list[Any]:
+    """Best-effort recall scoped to whichever principal is in play."""
+    if not user_id and not widget_session_id:
         return []
     try:
         from app.services.memory import default_service
 
         svc = default_service()
-        return await svc.recall(user_id=user_id, query=query, top_k=5, min_similarity=0.6)
+        return await svc.recall(
+            user_id=user_id,
+            widget_session_id=widget_session_id,
+            query=query,
+            top_k=5,
+            min_similarity=0.6,
+        )
     except Exception:
         return []
 
@@ -107,20 +116,25 @@ async def run_turn(
     user_msg: str,
     conversation_id: str | None = None,
     user_id: str | None = None,
+    widget_session_id: str | None = None,
 ) -> AsyncIterator[Event]:
     msg_id = uuid.uuid4().hex
+    trace_user_id = user_id or (
+        f"widget_session:{widget_session_id}" if widget_session_id else None
+    )
     tracing.update_current_trace(
         session_id=conversation_id,
-        user_id=user_id,
-        tags=["chat"],
+        user_id=trace_user_id,
+        tags=["chat", "widget"] if widget_session_id else ["chat"],
     )
     bind_trace_id(tracing.trace_id())
 
     user_token = tools_module.current_user_id.set(user_id)
+    widget_token = tools_module.current_widget_session_id.set(widget_session_id)
     conv_token = tools_module.current_conversation_id.set(conversation_id)
 
     try:
-        recalled = await _recall(user_id, user_msg)
+        recalled = await _recall(user_id, user_msg, widget_session_id=widget_session_id)
         system_prompt = BASE_SYSTEM_PROMPT + _render_recalled(recalled)
 
         messages: list[dict[str, Any]] = [
@@ -197,4 +211,5 @@ async def run_turn(
         yield {"type": "done", "msg_id": msg_id}
     finally:
         tools_module.current_user_id.reset(user_token)
+        tools_module.current_widget_session_id.reset(widget_token)
         tools_module.current_conversation_id.reset(conv_token)
