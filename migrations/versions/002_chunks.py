@@ -13,7 +13,6 @@ Slice 06 only writes dense queries; FTS / parent / filter wiring lands in 07.
 from __future__ import annotations
 
 from alembic import op
-import sqlalchemy as sa
 
 
 revision = "002_chunks"
