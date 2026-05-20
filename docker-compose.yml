@@ -71,6 +71,9 @@ services:
       VAULT_TOKEN: ${VAULT_TOKEN}
       GROQ_API_KEY: ${GROQ_API_KEY:-placeholder}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-placeholder}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-placeholder}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-placeholder}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
     entrypoint: ["/bin/sh", "/scripts/vault_seed.sh"]
     volumes:
       - ./scripts:/scripts:ro
