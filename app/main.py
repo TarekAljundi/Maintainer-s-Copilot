@@ -12,6 +12,7 @@ from app.api import error_handlers
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
+from app.api.demo import router as demo_router
 from app.api.dynamic_cors import DynamicCORSMiddleware
 from app.api.loader import router as loader_router
 from app.api.memory import router as memory_router
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, prefix="/api")
     app.include_router(widget_router)
     app.include_router(loader_router)
+    app.include_router(demo_router)
     return app
 
 
