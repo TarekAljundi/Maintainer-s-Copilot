@@ -105,7 +105,7 @@ The original fastapi pull surfaced a data ceiling that motivated the swap.
 Full 25-Q RAGAS generation eval pending Groq TPD reset — see EVALS.md §"Generation eval (RAGAS)".
 
 ## Chatbot
-- LLM: Groq `llama-3.3-70b-versatile`. All slots.
+- LLM: Groq `llama-3.3-70b-versatile` (default) or OpenRouter `nvidia/nemotron-3-super-120b-a12b:free` via `LLM_PROVIDER` env switch. Both clients are OpenAI-compatible — `app/infra/llm_groq.py` routes the same `stream_chat_with_tools` parser through either base URL. Vault `secret/api/llm` carries both `groq_api_key` and `openrouter_api_key`. Smoke verified Nemotron tool-use (write_memory) + cross-conv recall on 2026-05-20. Full bake-off (25-Q golden + tool-call discipline probe) is a follow-up; default stays Groq until the numbers land.
 - Tools: classify_issue, extract_entities, summarize_thread, search_knowledge, write_memory.
 - Memory: episodic in pgvector. Auto-recall on turn start. Explicit `write_memory` tool only.
 - Redis TTLs: conv 24h sliding, tool 1h, embed 24h, RL 60s.

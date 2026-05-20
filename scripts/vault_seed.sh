@@ -10,7 +10,8 @@ vault kv put secret/shared/jwt \
   signing_key="dev-jwt-signing-key-please-rotate-in-prod"
 
 vault kv put secret/api/llm \
-  groq_api_key="${GROQ_API_KEY:-placeholder}"
+  groq_api_key="${GROQ_API_KEY:-placeholder}" \
+  openrouter_api_key="${OPENROUTER_API_KEY:-placeholder}"
 
 vault kv put secret/api/tracing \
   langfuse_public_key="placeholder" \

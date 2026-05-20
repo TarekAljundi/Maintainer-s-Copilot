@@ -70,6 +70,7 @@ services:
       VAULT_ADDR: ${VAULT_ADDR}
       VAULT_TOKEN: ${VAULT_TOKEN}
       GROQ_API_KEY: ${GROQ_API_KEY:-placeholder}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-placeholder}
     entrypoint: ["/bin/sh", "/scripts/vault_seed.sh"]
     volumes:
       - ./scripts:/scripts:ro
@@ -120,6 +121,8 @@ services:
     environment:
       VAULT_ADDR: ${VAULT_ADDR}
       VAULT_TOKEN: ${VAULT_TOKEN}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      LLM_MODEL: ${LLM_MODEL:-}
     ports: ["${API_PORT}:8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://localhost:8000/openapi.json\", timeout=2).status==200 else 1)'"]
