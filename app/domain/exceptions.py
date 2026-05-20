@@ -1,11 +1,18 @@
 """Domain + infra exception hierarchy. See PRD Q23."""
 
+from __future__ import annotations
+
+from typing import Any
+
 
 class AppError(Exception):
     code: str = "app_error"
-    message: str = ""
     status_code: int = 500
-    extras: dict = {}
+
+    def __init__(self, message: str = "", **extras: Any) -> None:
+        super().__init__(message)
+        self.message = message
+        self.extras: dict[str, Any] = dict(extras)
 
 
 class DomainError(AppError): ...
