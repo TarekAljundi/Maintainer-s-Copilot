@@ -51,9 +51,7 @@ def upgrade() -> None:
 
     # --- episodic_memories: widget-keyed support -------------------------------
     op.execute("ALTER TABLE episodic_memories ALTER COLUMN user_id DROP NOT NULL")
-    op.execute(
-        "ALTER TABLE episodic_memories ADD COLUMN widget_session_id VARCHAR(64) NULL"
-    )
+    op.execute("ALTER TABLE episodic_memories ADD COLUMN widget_session_id VARCHAR(64) NULL")
     op.execute(
         """
         ALTER TABLE episodic_memories
@@ -70,9 +68,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS episodic_memories_widget_created_idx")
-    op.execute(
-        "ALTER TABLE episodic_memories DROP CONSTRAINT IF EXISTS episodic_memories_actor_ck"
-    )
+    op.execute("ALTER TABLE episodic_memories DROP CONSTRAINT IF EXISTS episodic_memories_actor_ck")
     op.execute("ALTER TABLE episodic_memories DROP COLUMN IF EXISTS widget_session_id")
     op.execute("ALTER TABLE episodic_memories ALTER COLUMN user_id SET NOT NULL")
     op.execute("DROP TABLE IF EXISTS widget_configs")
