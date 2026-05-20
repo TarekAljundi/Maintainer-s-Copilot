@@ -6,16 +6,16 @@
 - Tokenizer: DebertaV2Tokenizer (sentencepiece), max length 512
 
 ## Training data
-- Source: `fastapi/fastapi` closed issues, >= 2020-01-01
-- Label mapping: strict + tiebreak `bug > feature > docs > question`
+- Source: `pandas-dev/pandas` closed issues, >= 2020-01-01 (corpus swapped from fastapi/fastapi mid-project — see DECISIONS.md §Dataset)
+- Label mapping: LABEL_MAP (`Bug`→bug, `Enhancement`→feature, `Docs`/`Documentation`→docs, `Usage Question`→question) + tiebreak `bug > feature > docs > question`
 - Splits: 70/10/15 train/val/test, time-stratified by `closed_at` ascending
 - Preprocessing: title+body, code blocks -> `<CODE>` placeholder, 512-tok head trunc
-- Dataset manifest sha256: `386b4d32d0c0534ad970a68216594cc1d52e5e65447f7345cb0ac49db4c924a2`
+- Dataset manifest sha256: `335cdb888ffd0e809628646c4682f257676492e8e882d2928dbd21929d1f6bfd`
 - Per-class counts (train / val / test):
-  - bug: 38 / 0 / 1
-  - feature: 39 / 1 / 13
-  - docs: 0 / 0 / 0
-  - question: 1875 / 278 / 404
+  - bug: 2746 / 360 / 616
+  - feature: 693 / 157 / 163
+  - docs: 681 / 116 / 198
+  - question: 518 / 29 / 16
 
 ## Hyperparameters
 - Freeze policy: full fine-tune
@@ -27,21 +27,21 @@
 - Tracking: TensorBoard (W&B blocked in user region; see DECISIONS.md)
 
 ## Metrics (test split)
-- Accuracy: 0.9665
-- Macro-F1: 0.3277
-- Per-class F1: bug=0.0000, feature=0.0000, docs=0.0000, question=0.9830
-- Per-class support: bug=1, feature=13, docs=0, question=404
+- Accuracy: 0.9517
+- Macro-F1: 0.8959
+- Per-class F1: bug=0.9686, feature=0.9483, docs=0.9167, question=0.7500
+- Per-class support: bug=616, feature=163, docs=198, question=16
 - p50/p99 latency: TBD (measured in slice 04 baselines comparison)
 
 ## Weights
 - Bucket / prefix: `s3://mc-models/classifier/v1/`
 - Files: `model.safetensors`, `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, `spm.model`, `config.json`
-- SHA-256 (model.safetensors): `efb5388e886552d6c35ac861b1b8bcf6e28b91b168346957f3c646bbe88ba21e`
+- SHA-256 (model.safetensors): `f4a5c67f8e72119a97270bb7a93a3657bcf9ee3db73cbe4f74123636261a0975`
 - Pinned in: `app/infra/_classifier_registry.py::WEIGHTS_SHA256`
 - Boot check #5 compares the model-server-reported SHA against this pin.
 
 ## Limitations
-- Trained on FastAPI-only English issues. No generalization claim beyond that corpus.
+- Trained on pandas-only English issues. No generalization claim beyond that corpus.
 - Head-only truncation biases toward signal in the first 512 tokens.
 - `<CODE>` placeholder strips lexical content of code blocks; the classifier cannot use code identifiers as features.
-- Class imbalance: `docs` is severely under-represented in the time-stratified split (train support 0, test support 0); F1 on that class is not meaningful at this scale.
+- Class imbalance: `question` is the smallest class (train support 518, test support 16); per-class F1 on `question` carries higher variance than the other three classes.

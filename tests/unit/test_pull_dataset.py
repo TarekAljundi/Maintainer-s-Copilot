@@ -10,17 +10,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import pull_dataset as pd  # noqa: E402
 
 
+def test_resolve_label_pandas_taxonomy_to_canonical():
+    """pandas labels: Bug/Enhancement/Docs/Usage Question -> canonical 4 classes."""
+    assert pd.resolve_label(["Bug"]) == "bug"
+    assert pd.resolve_label(["Enhancement"]) == "feature"
+    assert pd.resolve_label(["Docs"]) == "docs"
+    assert pd.resolve_label(["Documentation"]) == "docs"  # alt spelling
+    assert pd.resolve_label(["Usage Question"]) == "question"
+
+
 def test_resolve_label_priority_tie_break():
-    # bug > feature > docs > question
-    assert pd.resolve_label(["docs", "bug", "question"]) == "bug"
-    assert pd.resolve_label(["feature", "docs"]) == "feature"
-    assert pd.resolve_label(["docs", "question"]) == "docs"
-    assert pd.resolve_label(["question"]) == "question"
+    # bug > feature > docs > question  (after mapping through LABEL_MAP)
+    assert pd.resolve_label(["Docs", "Bug", "Usage Question"]) == "bug"
+    assert pd.resolve_label(["Enhancement", "Docs"]) == "feature"
+    assert pd.resolve_label(["Docs", "Usage Question"]) == "docs"
+    assert pd.resolve_label(["Usage Question"]) == "question"
 
 
-def test_resolve_label_ignores_workflow_and_component_labels():
-    assert pd.resolve_label(["answered", "reviewed", "security", "dependencies"]) is None
-    assert pd.resolve_label(["docs", "answered", "security"]) == "docs"
+def test_resolve_label_ignores_non_canonical_labels():
+    """Workflow / component / subcomponent labels are ignored."""
+    assert pd.resolve_label(["Needs Discussion", "Performance", "IO", "Indexing"]) is None
+    assert pd.resolve_label(["Docs", "Needs Discussion", "good first issue"]) == "docs"
 
 
 def test_resolve_label_unlabeled_returns_none():
@@ -48,16 +58,14 @@ def test_time_split_70_10_15_5_oldest_first():
     assert splits["train"][0]["closed_at"] < splits["rag_candidates"][-1]["closed_at"]
 
 
-def test_has_maintainer_answer_via_answered_label():
-    assert pd.has_maintainer_answer(["answered"], [])
-    assert pd.has_maintainer_answer(["ANSWERED"], [])  # case insensitive
-
-
 def test_has_maintainer_answer_via_comment_association():
+    """pandas doesn't have an 'answered' label, so maintainer-comment is the sole signal."""
     comments = [{"author_association": "MEMBER", "body": "hi"}]
     assert pd.has_maintainer_answer([], comments)
     assert not pd.has_maintainer_answer([], [{"author_association": "NONE"}])
     assert not pd.has_maintainer_answer([], [])
+    # Labels are ignored in the new pandas-based logic.
+    assert not pd.has_maintainer_answer(["answered"], [])
 
 
 def test_per_class_counts():

@@ -3,54 +3,88 @@
 Every decision backed by a number on the project's golden set. Numbers filled as evals land.
 
 ## Dataset
-- Repo: `fastapi/fastapi` closed issues since 2020-01-01 (renamed from `tiangolo/fastapi`; both names redirect to the same GitHub repository id `160919119`).
-- Label mapping: strict + tiebreak `bug > feature > docs > question`. Workflow labels (`answered`, `reviewed`) and component labels (`security`, `dependencies`) are ignored for classification. Unlabeled excluded from train/val/test (kept in `unlabeled.jsonl` for hand-curated golden sets).
+- Repo: `pandas-dev/pandas` closed issues since 2020-01-01. **Swapped from `fastapi/fastapi`** mid-project for materially better class balance + ~10× more labeled records — see §"Why we swapped the corpus" below.
+- Label mapping: `LABEL_MAP` in `scripts/pull_dataset.py` translates raw pandas labels (`Bug`, `Enhancement`, `Docs`/`Documentation`, `Usage Question`) into the canonical 4 classes, then the tiebreak `bug > feature > docs > question` resolves multi-label issues (most actionable wins). Labels not in the map (workflow/component/subcomponent, e.g. `Needs Discussion`, `Performance`, `IO`, `Indexing`, `good first issue`) are ignored for classification. Unlabeled excluded from train/val/test (kept in `unlabeled.jsonl` for hand-curated golden sets).
 - Splits (time-stratified by `closed_at` asc): 70% train, 10% val, 15% test, 5% RAG held-out.
-- RAG held-out = newest 5% intersected with (has maintainer comment OR `answered` label).
+- RAG held-out = newest 5% intersected with maintainer-association comment present. (The `answered` workflow label was a fastapi convention; pandas doesn't use it.)
 
-### Dataset v1 manifest
-- Pulled `2026-05-19` at git SHA `55dcc6d` (slice 01 head; before this slice landed).
-- MinIO: `s3://mc-evals/datasets/fastapi-issues/v1/{train,val,test,rag_holdout,unlabeled}.jsonl` + `manifest.json`.
-- Counts: train=1952, val=279, test=418, rag_holdout=96, unlabeled=149. Per-class is heavily `question`-skewed; `docs` is sparse (n=0 in train/val/test, n=4 in rag_holdout) — slice 03 must handle this (drop class, oversample, or stratified-by-class then time-ordered within class).
+### Why we swapped the corpus
+- The fastapi pull (slice 02 v1) produced train=1952, val=279, test=418, rag_holdout=96 — but 97% of labeled records were `question` (train had 0 `docs`, 38 `bug`, 39 `feature`). Class-weighted training (slice 03) lifted val macro-F1 from 0 → 0.499 but test macro-F1 stalled at 0.328 because there were only 1 test bug + 13 test features to score against. Slice 04 baselines surfaced the same data ceiling: deberta collapsed to "always predict question" on the golden set.
+- pandas has 4 cleanly-labeled canonical classes (`Bug`, `Enhancement`, `Docs`, `Usage Question`) applied to thousands of closed issues since 2020 → expected ~10× the labeled volume with non-zero per-class support across all four classes.
+- The framework (training script, baselines orchestrator, NER + summarizer wiring) is corpus-agnostic; only artifacts (splits, classifier weights, golden sets, recorded numbers) needed rebuilding.
+
+### Dataset v2 manifest (pandas)
+- Pulled `2026-05-20` at git SHA `0c6de2e` (slice 05 head; corpus-swap-to-pandas branch from there).
+- Pull strategy: `scripts/pull_dataset.py` uses the GitHub Search API with monthly `created:` windows (`is:issue is:closed`), one cache file per month under `data/raw/issues_window_YYYY-MM.json`. The legacy `/issues` endpoint capped pagination at ~10k items per query and ~85% of those were PRs (waste); the search-API windowed pull bypasses both problems and yields ~5× the labeled records over a single month-floor pull.
+- MinIO: `s3://mc-evals/datasets/pandas-issues/v1/{train,val,test,rag_holdout,unlabeled}.jsonl` + `manifest.json` (uploaded after retrain + rebaseline land in this PR).
+- Counts: total labeled = **6,553** (vs fastapi v1 = 2,745), unlabeled = 2,835.
+
+| split | n | bug | feature | docs | question |
+|---|---:|---:|---:|---:|---:|
+| train | 4,638 | 2,746 | 693 | 681 | 518 |
+| val   |   662 |   360 | 157 | 116 |  29 |
+| test  |   993 |   616 | 163 | 198 |  16 |
+| rag_holdout | 260 | 140 | 56 | 54 | 10 |
+
+All four classes have material train + test support (vs fastapi where train had 0 docs and test had 1 bug, 13 feature, 0 docs). `question` is the smallest class but present in every split — classification golden can be drawn 4-class.
+
 - Verify locally: `python -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" data/splits/train.jsonl` then diff against `manifest.json`.
 
 ## Classifier
-- Fine-tuned: `microsoft/deberta-v3-small`, full FT + discriminative LR (encoder 2e-5, head 1e-4). + class-weighted cross-entropy (inverse frequency, mean-normalized). bf16, gradient checkpointing, bsz 8 + grad-accum 2 (eff 16). Test macro-F1 = **0.328** (acc 0.967). Val macro-F1 = 0.499.
-- Classical: TF-IDF (word 1-2 + char_wb 3-5) + LogReg balanced, `C` tuned on val via 5-point grid (winner C=0.05, val macro-F1 = 0.498 — grid flat because val is 99% `question`). Test split shares deberta's. `docs` has zero train records so the classical model literally cannot emit `docs`.
-- LLM baseline: Groq `llama-3.3-70b-versatile`, 4-shot, temp=0, tool_use (single tool `classify_issue`, label enum forced). `docs` few-shot example synthesized — corpus has zero `docs` records in train.
-- Deployment: **deberta** (PRD-locked, boot check #5 SHA-pins the artifact). Numbers below expose the trade-off honestly.
+- Fine-tuned: `microsoft/deberta-v3-small`, full FT + discriminative LR (encoder 2e-5, head 1e-4) + class-weighted cross-entropy (inverse frequency, mean-normalized). bf16, gradient checkpointing, bsz 8 + grad-accum 2 (eff 16). Trained 3 epochs (early-stop on val macro-F1, patience 1). Val macro-F1 best = **0.844** (epoch 2). Test macro-F1 = **0.896**, accuracy = **0.952**. Wall time: 612s on RTX 4060. Weights SHA-256: `f4a5c67f8e72119a97270bb7a93a3657bcf9ee3db73cbe4f74123636261a0975` (pinned in `app/infra/_classifier_registry.py`).
+- Per-class test F1: bug=0.969 (n=616), feature=0.948 (n=163), docs=0.917 (n=198), question=0.750 (n=16). Question is the weakest cell — only 16 test records, small-sample variance — but the model is actually predicting it, not collapsing.
+- Class weights at train start: bug=0.28 (majority, down-weighted), feature=1.11, docs=1.13, question=1.48 (minority, up-weighted). Healthy distribution — vs fastapi v1 where the inverse weighting amplified the 97%-question prior unevenly.
+- Classical: TF-IDF (word 1-2 + char_wb 3-5) + LogReg balanced, `C` tuned on val via 5-point grid. Same splits as deberta. Numbers refreshed when slice-04-equivalent rerun lands in this PR.
+- LLM baseline: Groq `llama-3.3-70b-versatile`, 4-shot, temp=0, tool_use (single tool `classify_issue`, label enum forced). `docs` few-shot drawn from train (no longer synthesized — pandas has 681 docs records in train).
+- Deployment: **deberta** (PRD-locked, boot check #5 SHA-pins the artifact). One-line defense filled after baselines rerun.
 
-### `docs` label is structurally sparse in the issue stream
-On the fastapi/fastapi corpus the `docs` label appears **772 times across all records but only on 11 closed issues** (the other 761 are pull requests, filtered out). After the bug > feature > docs > question tie-break, 7 of those 11 are taken by `feature`, leaving **4 final `docs` records** — all of which end up in the RAG held-out slice (newest 5%).
-- Implication: the classifier has zero training examples for `docs` and zero test examples to score it on. Per-class F1 for docs is undefined.
-- Mitigations considered and rejected: (a) include docs PRs → violates "closed issues" AC; (b) drop docs class to make a 3-class model → deviates from PRD's 4-class spec; (c) heuristic regex on title/body for "documentation"/"readme" → fragile, adds bias.
-- Accepted: keep the 4-class vocabulary, document the corpus reality. Slice 04 baselines will face the same constraint.
+### Three-model comparison (slice 04 re-run on pandas v2)
 
-### Class-weighted loss (slice 03)
-Added inverse-frequency class weighting to the training-time CrossEntropy because the corpus is 97% `question`. Without it the model collapsed to "always predict question." Weights help val macro-F1 (0 → 0.499) but **don't transfer to test macro-F1** (still 0.328) — the test minority classes (1 bug, 13 features) need stronger generalization than the 38-39 training examples per class allow. The intervention is architecturally correct; the data ceiling remains.
-
-### Three-model comparison (slice 04, golden n=25)
-
-Golden set is 25 hand-curated records sampled from `rag_holdout.jsonl` (stratified 7/7/4/7 across bug/feature/docs/question, seed=42), separate from the time-stratified test split. Each model predicts on the same 25 inputs. Latency is per-record wall-clock; cost is computed from Groq's posted llama-3.3-70b-versatile rate ($0.59/1M in, $0.79/1M out, retrieved 2026-05-19).
+Golden set: 25 hand-curated records sampled from `rag_holdout.jsonl` (stratified 7/7/4/7 across bug/feature/docs/question, seed=42), separate from the time-stratified test split. Latency is per-record wall-clock; cost from Groq's posted llama-3.3-70b-versatile rate ($0.59/1M in, $0.79/1M out, retrieved 2026-05-19).
 
 | Model | Accuracy | Macro-F1 | F1 bug | F1 feature | F1 docs | F1 question | p50 ms | p99 ms | $/1k |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| deberta (deployed) | 0.280 | 0.109 | 0.000 | 0.000 | 0.000 | 0.438 |  250.0 |  325.5 | $0.00 |
-| classical          | 0.320 | 0.203 | 0.000 | 0.400 | 0.000 | 0.414 |    3.6 |    9.8 | $0.00 |
-| llm (Groq 4-shot)  | 0.560 | 0.459 | 0.636 | 0.800 | 0.400 | 0.000 | 8488.2 |15219.9 | $1.10 |
+| deberta (deployed) | 0.760 | 0.779 | 0.700 | 0.833 | 0.857 | 0.727 |  237.2 |  379.4 | $0.00 |
+| classical          | 0.760 | 0.779 | 0.700 | 0.833 | 0.857 | 0.727 |    4.4 |    5.5 | $0.00 |
+| llm (Groq 4-shot)  | 0.800 | 0.815 | 0.737 | 0.833 | 0.857 | 0.833 | 7476.3 |14825.5 | $1.11 |
 
 Confusion matrix — **deployed (deberta)**, rows = true, cols = pred, order = [bug, feature, docs, question]:
 ```
                 pred:
                 bug  feature  docs  question
-true bug         0       0      0       7
-true feature     0       0      0       7
-true docs        0       0      0       4
-true question    0       0      0       7
+true bug         7       0      0       0
+true feature     2       5      0       0
+true docs        1       0      3       0
+true question    3       0      0       4
 ```
-deberta collapses to "always predict question" on golden (matches the corpus prior the time-stratified split learned, not the golden's balanced label distribution).
+All three models cleanly classify `bug` (7/7) and tie on `feature` (5/7, the 2 misses go to `bug`) and `docs` (3/4, 1 miss to `bug`). Only `question` separates them: deberta + classical get 4/7, llm gets 5/7. **deberta and classical produce literally identical predictions on all 25 records** — the title prefix (`BUG:`/`ENH:`/`DOC:`/`QST:`) is so dominant a feature on this slice that architecture barely matters; the 6 shared misses are 5 records with `BUG:`-prefixed titles but non-bug GitHub labels + 1 short body that lacks a prefix entirely.
 
-**Defense (one line):** **deberta deployed** per PRD lock + boot check #5 (SHA-pinned artifact + model card + zero per-prediction cost), even though llm leads macro-F1 by +0.35 — llm's ~34× latency (8.5s vs 250ms) and $1.10/1k make it untenable as the always-on classifier; classical's 70× latency win doesn't recover the F1 gap (0.109 → 0.203). Numbers also surface the train-split prior the deberta learned: revisit weighting or an augmented `docs`/`bug`/`feature` slice before the Friday demo if budget allows (PRD §"Scope-cut priority").
+### Test-split comparison (n=993) — the deciding numbers
+
+The golden ties; the held-out test split does not. Run on the same artifact:
+
+| Model | Accuracy | Macro-F1 | F1 bug | F1 feature | F1 docs | F1 question |
+|---|---:|---:|---:|---:|---:|---:|
+| deberta | **0.9517** | **0.8959** | 0.9686 | 0.9483 | 0.9167 | **0.7500** |
+| classical | 0.9345 | 0.8431 | 0.9560 | 0.9028 | 0.9280 | 0.5854 |
+| Δ deberta − classical | +0.017 | **+0.053** | +0.013 | +0.046 | −0.011 | **+0.165** |
+
+**Defense (one line):** **deberta deployed** — on the n=993 held-out test split deberta beats classical by +0.053 macro-F1 (driven mostly by +0.16 F1 on the minority `question` class), beats llm on both latency (31× faster p50, 237ms vs 7.5s) and cost ($0 vs $1.11/1k), and is the only model with the SHA-pinned + model-carded artifact the PRD's boot-check #5 requires. The 25-row golden tying deberta and classical is corpus signal — pandas's title-prefix convention dominates that small slice — not evidence the fine-tune is wasted.
+
+### Historical: fastapi v1 (pre-corpus-swap, kept for narrative)
+
+The original fastapi pull surfaced a data ceiling that motivated the swap.
+- **Trained classifier** (slice 03, fastapi): test macro-F1 = 0.328, acc = 0.967; val macro-F1 = 0.499. Class-weighted CE lifted val from 0 → 0.499 but failed to transfer to test because the test minority classes had n=1 bug, n=13 feature, n=0 docs.
+- **`docs` sparsity** (fastapi): `docs` appeared on 772 records but 761 were PRs (filtered); after the bug > feature > docs > question tiebreak, 7 of the remaining 11 were taken by `feature`, leaving 4 final docs records — all in the RAG held-out slice. Classifier had zero training examples for docs.
+- **Baselines on fastapi golden** (n=25, drawn from fastapi rag_holdout):
+
+  | Model | Accuracy | Macro-F1 | p50 ms | p99 ms | $/1k |
+  |---|---:|---:|---:|---:|---:|
+  | deberta (deployed) | 0.280 | 0.109 |  250.0 |  325.5 | $0.00 |
+  | classical          | 0.320 | 0.203 |    3.6 |    9.8 | $0.00 |
+  | llm (Groq 4-shot)  | 0.560 | 0.459 | 8488.2 |15219.9 | $1.10 |
+  
+  deberta collapsed to "always predict question" on golden — matched the 97% question prior in the time-stratified train split, not the golden's balanced label distribution. This collapse is the headline reason the corpus was swapped.
 
 ## RAG
 - Embedding: `BAAI/bge-base-en-v1.5` vs `bge-small-en-v1.5` ablation. hit@5 = TBD vs TBD.

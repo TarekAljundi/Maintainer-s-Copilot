@@ -244,8 +244,8 @@ def write_model_card(
 - Tokenizer: DebertaV2Tokenizer (sentencepiece), max length 512
 
 ## Training data
-- Source: `fastapi/fastapi` closed issues, >= 2020-01-01
-- Label mapping: strict + tiebreak `bug > feature > docs > question`
+- Source: `pandas-dev/pandas` closed issues, >= 2020-01-01 (corpus swapped from fastapi/fastapi mid-project — see DECISIONS.md §Dataset)
+- Label mapping: LABEL_MAP (`Bug`→bug, `Enhancement`→feature, `Docs`/`Documentation`→docs, `Usage Question`→question) + tiebreak `bug > feature > docs > question`
 - Splits: 70/10/15 train/val/test, time-stratified by `closed_at` ascending
 - Preprocessing: title+body, code blocks -> `<CODE>` placeholder, 512-tok head trunc
 - Dataset manifest sha256: `{dataset_manifest_sha}`
@@ -279,10 +279,10 @@ def write_model_card(
 - Boot check #5 compares the model-server-reported SHA against this pin.
 
 ## Limitations
-- Trained on FastAPI-only English issues. No generalization claim beyond that corpus.
+- Trained on pandas-only English issues. No generalization claim beyond that corpus.
 - Head-only truncation biases toward signal in the first 512 tokens.
 - `<CODE>` placeholder strips lexical content of code blocks; the classifier cannot use code identifiers as features.
-- Class imbalance: `docs` is severely under-represented in the time-stratified split (train support {train_counts.get("docs", 0)}, test support {test_counts.get("docs", 0)}); F1 on that class is not meaningful at this scale.
+- Class imbalance: `question` is the smallest class (train support {train_counts.get("question", 0)}, test support {test_counts.get("question", 0)}); per-class F1 on `question` carries higher variance than the other three classes.
 """
     MODEL_CARD_PATH.write_text(body, encoding="utf-8")
 

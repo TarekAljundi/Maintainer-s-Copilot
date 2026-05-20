@@ -1,4 +1,4 @@
-"""Pull tiangolo/fastapi closed issues -> time-stratified splits -> MinIO.
+"""Pull pandas-dev/pandas closed issues -> time-stratified splits -> MinIO.
 
 Usage (from repo root, with compose stack up):
     MC_BLOB_FROM_HOST=1 GITHUB_TOKEN=ghp_... VAULT_TOKEN=dev-root-token \
@@ -10,9 +10,10 @@ Outputs:
     data/splits/{train,val,test,rag_holdout,unlabeled}.jsonl
     data/splits/manifest.json             SHA-256s + git SHA + counts
 
-Then uploads splits/* to s3://mc-evals/datasets/fastapi-issues/v1/.
+Then uploads splits/* to s3://mc-evals/datasets/pandas-issues/v1/.
 
-AC: PRD §Dataset and labels (Q1-Q5).
+AC: PRD §Dataset and labels (Q1-Q5). Corpus swapped from fastapi/fastapi to
+pandas-dev/pandas — see DECISIONS.md §Dataset for the rationale.
 """
 
 from __future__ import annotations
@@ -25,32 +26,48 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
 import httpx
 
-REPO = "fastapi/fastapi"  # renamed from tiangolo/fastapi; PRD calls out old name
+REPO = "pandas-dev/pandas"
 CREATED_FLOOR = "2020-01-01T00:00:00Z"
 LABEL_PRIORITY = ("bug", "feature", "docs", "question")
-WORKFLOW_LABELS = {"answered", "reviewed"}
-COMPONENT_LABELS = {"security", "dependencies"}
+
+# Map raw GitHub label name (lowercased) -> canonical class. Labels not in the
+# map are ignored for classification (they may be workflow/component labels
+# like "Needs Discussion", "Performance", "IO", etc.).
+LABEL_MAP: dict[str, str] = {
+    "bug": "bug",
+    "enhancement": "feature",
+    "docs": "docs",
+    "documentation": "docs",
+    "usage question": "question",
+}
+
 MAINTAINER_ASSOC = {"OWNER", "MEMBER", "COLLABORATOR"}
 
 RAW_DIR = Path("data/raw")
 SPLITS_DIR = Path("data/splits")
-MINIO_PREFIX = "datasets/fastapi-issues/v1"
+MINIO_PREFIX = "datasets/pandas-issues/v1"
 
 
 # ---------- pure logic (unit-tested) ----------
 
 
 def resolve_label(label_names: Iterable[str]) -> str | None:
-    """Strict map + multi-label tie-break by LABEL_PRIORITY. None if unlabeled."""
+    """Map raw GitHub labels to canonical class; tie-break by LABEL_PRIORITY.
+
+    A label survives only if it appears in LABEL_MAP — everything else
+    (workflow, component, subcomponent) is ignored. Returns None when no
+    canonical class is found, i.e. the issue is "unlabeled" for our taxonomy.
+    """
     names = {n.lower() for n in label_names}
-    relevant = names - WORKFLOW_LABELS - COMPONENT_LABELS
+    mapped = {LABEL_MAP[n] for n in names if n in LABEL_MAP}
     for canonical in LABEL_PRIORITY:
-        if canonical in relevant:
+        if canonical in mapped:
             return canonical
     return None
 
@@ -84,8 +101,13 @@ def time_split(records: list[dict]) -> dict[str, list[dict]]:
 
 
 def has_maintainer_answer(labels: Iterable[str], comments: list[dict]) -> bool:
-    if "answered" in {label.lower() for label in labels}:
-        return True
+    """RAG-holdout filter: issue has at least one maintainer-association comment.
+
+    Note: the fastapi-specific 'answered' workflow label is no longer
+    consulted — pandas doesn't use that convention. Maintainer-association
+    comment alone is the filter.
+    """
+    del labels  # kept in signature for call-site stability across corpora
     return any(c.get("author_association") in MAINTAINER_ASSOC for c in (comments or []))
 
 
@@ -103,43 +125,105 @@ def _gh_headers() -> dict:
     return h
 
 
-def fetch_issues(client: httpx.Client) -> list[dict]:
-    """Paginate /issues?state=closed&since=...; cache each page to disk; resumable."""
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    page = 1
-    issues: list[dict] = []
-    while True:
-        cache = RAW_DIR / f"issues_page_{page:04d}.json"
-        if cache.exists():
-            data = json.loads(cache.read_text(encoding="utf-8"))
+def _month_windows(start: str, end_inclusive: str) -> list[tuple[str, str]]:
+    """Yield (YYYY-MM-01, YYYY-MM-LAST) windows covering [start, end_inclusive].
+
+    `start` and `end_inclusive` are 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SSZ' strings.
+    """
+    s = date.fromisoformat(start[:10])
+    e = date.fromisoformat(end_inclusive[:10])
+    windows: list[tuple[str, str]] = []
+    y, m = s.year, s.month
+    while (y, m) <= (e.year, e.month):
+        first = f"{y:04d}-{m:02d}-01"
+        # Last day of this month = first day of next month minus one day.
+        if m == 12:
+            ny, nm = y + 1, 1
         else:
-            url = f"https://api.github.com/repos/{REPO}/issues"
-            params = {
-                "state": "closed",
-                "since": CREATED_FLOOR,
-                "sort": "created",
-                "direction": "asc",
-                "per_page": 100,
-                "page": page,
-            }
-            r = client.get(url, params=params)
-            if r.status_code == 403 and "rate limit" in r.text.lower():
-                reset = int(r.headers.get("X-RateLimit-Reset", time.time() + 60))
-                wait = max(reset - int(time.time()), 1)
-                print(f"  rate-limited, sleeping {wait}s ...", file=sys.stderr)
-                time.sleep(wait)
-                continue
-            r.raise_for_status()
-            data = r.json()
-            cache.write_text(json.dumps(data), encoding="utf-8")
-        if not data:
-            break
-        issues.extend(data)
-        print(f"  page {page}: {len(data)} items (total {len(issues)})")
-        if len(data) < 100:
-            break
-        page += 1
-    return issues
+            ny, nm = y, m + 1
+        last = (date(ny, nm, 1) - timedelta(days=1)).isoformat()
+        # Clamp the final window to end_inclusive.
+        if (y, m) == (e.year, e.month):
+            last = e.isoformat()
+        windows.append((first, last))
+        y, m = ny, nm
+    return windows
+
+
+def _search_one_page(client: httpx.Client, q: str, page: int) -> dict:
+    """Call GET /search/issues with rate-limit + 422 handling. Returns the JSON body."""
+    while True:
+        r = client.get(
+            "https://api.github.com/search/issues",
+            params={"q": q, "per_page": 100, "page": page, "sort": "created", "order": "asc"},
+        )
+        if r.status_code == 403 and "rate limit" in r.text.lower():
+            reset = int(r.headers.get("X-RateLimit-Reset", time.time() + 60))
+            wait = max(reset - int(time.time()), 1)
+            print(f"  rate-limited (search), sleeping {wait}s ...", file=sys.stderr)
+            time.sleep(wait)
+            continue
+        # Search API also returns 422 if you go past 1000 results in a single
+        # query window. We treat that as "this window is full" — caller may
+        # need to subdivide; we just stop the inner pagination.
+        if r.status_code == 422:
+            return {"items": [], "total_count": -1, "exhausted": True}
+        r.raise_for_status()
+        body = r.json()
+        body["exhausted"] = False
+        return body
+
+
+def fetch_issues(client: httpx.Client) -> list[dict]:
+    """Pull pandas closed issues via the Search API, windowed by month.
+
+    The plain /issues endpoint caps pagination at ~1000 records-deep AND mixes
+    PRs into the stream, wasting most of our pull on PRs we'll discard. Search
+    API filters with `is:issue is:closed` directly and lets us window by
+    `created:YYYY-MM-01..YYYY-MM-DD`, so we get every actual issue with no PR
+    overhead.
+
+    Tradeoffs:
+      - Search API is rate-limited tighter (30 req/min vs 5000/hr) — handled.
+      - Each window caps at 1000 results; pandas months are ~150-300 issues
+        each, well under the cap. If a window ever returns 1000+ we'd need to
+        subdivide; for pandas this doesn't trigger.
+      - Caching uses one file per month-window so re-runs skip what's done.
+    """
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    windows = _month_windows(CREATED_FLOOR, today)
+
+    issues_by_number: dict[int, dict] = {}
+    for w_start, w_end in windows:
+        cache_name = f"issues_window_{w_start[:7]}.json"
+        cache = RAW_DIR / cache_name
+        if cache.exists():
+            window_items = json.loads(cache.read_text(encoding="utf-8"))
+            print(f"  {w_start[:7]}: cached ({len(window_items)} items)")
+        else:
+            q = f"repo:{REPO} is:issue is:closed created:{w_start}..{w_end}"
+            window_items: list[dict] = []
+            for page in range(1, 11):  # 10 pages * 100 = 1000 max per window
+                body = _search_one_page(client, q, page)
+                if body.get("exhausted"):
+                    print(
+                        f"  {w_start[:7]} page {page}: 422 — window over 1000 items "
+                        f"(would need finer slicing); kept first {len(window_items)}",
+                        file=sys.stderr,
+                    )
+                    break
+                items = body.get("items", []) or []
+                window_items.extend(items)
+                if len(items) < 100:
+                    break
+            cache.write_text(json.dumps(window_items), encoding="utf-8")
+            print(f"  {w_start[:7]}: {len(window_items)} items")
+        for it in window_items:
+            num = it.get("number")
+            if num is not None and num not in issues_by_number:
+                issues_by_number[num] = it
+    return list(issues_by_number.values())
 
 
 def fetch_comments(client: httpx.Client, number: int) -> list[dict]:
