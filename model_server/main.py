@@ -1,9 +1,9 @@
-"""FastAPI inference server. Loads classifier + NER + reranker + embedder at startup.
+"""FastAPI inference server. Loads classifier + NER + embedder at startup.
 
-Slice 05: classifier (slice 03) + NER are wired. Reranker / embedder stubs
-return False on /health until their owning slices (07) land.
+Slice 05: classifier + NER wired. Slice 06: embedder wired (bge-base).
+Reranker stub returns False on /health until slice 07.
 
-Endpoints: /health, /classify, /extract
+Endpoints: /health, /classify, /extract, /embed
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from model_server.classifier import Classifier
+from model_server.embedder import Embedder
 from model_server.ner import NERService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -23,11 +24,12 @@ log = logging.getLogger(__name__)
 
 _classifier: Classifier | None = None
 _ner: NERService | None = None
+_embedder: Embedder | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _classifier, _ner
+    global _classifier, _ner, _embedder
     if os.environ.get("MC_SKIP_CLASSIFIER_LOAD") == "1":
         log.warning("MC_SKIP_CLASSIFIER_LOAD=1 — serving with classifier_loaded=false")
     else:
@@ -43,6 +45,13 @@ async def lifespan(app: FastAPI):
             _ner = NERService()
         except Exception:
             log.exception("NER load failed; /health will report ner_loaded=false")
+    if os.environ.get("MC_SKIP_EMBEDDER_LOAD") == "1":
+        log.warning("MC_SKIP_EMBEDDER_LOAD=1 — serving with embedder_loaded=false")
+    else:
+        try:
+            _embedder = Embedder()
+        except Exception:
+            log.exception("embedder load failed; /health will report embedder_loaded=false")
     yield
 
 
@@ -58,6 +67,11 @@ class ExtractRequest(BaseModel):
     text: str
 
 
+class EmbedRequest(BaseModel):
+    texts: list[str]
+    mode: str = "passage"
+
+
 @app.get("/health")
 def health() -> dict:
     return {
@@ -65,7 +79,7 @@ def health() -> dict:
         "weights_sha": _classifier.weights_sha if _classifier else "",
         "ner_loaded": _ner is not None,
         "reranker_loaded": False,
-        "embedder_loaded": False,
+        "embedder_loaded": _embedder is not None,
     }
 
 
@@ -81,3 +95,12 @@ def extract(req: ExtractRequest) -> dict:
     if _ner is None:
         raise HTTPException(status_code=503, detail="ner_not_loaded")
     return {"entities": _ner.extract(req.text)}
+
+
+@app.post("/embed")
+def embed(req: EmbedRequest) -> dict:
+    if _embedder is None:
+        raise HTTPException(status_code=503, detail="embedder_not_loaded")
+    if req.mode not in ("query", "passage"):
+        raise HTTPException(status_code=400, detail="mode must be 'query' or 'passage'")
+    return {"embeddings": _embedder.encode(req.texts, mode=req.mode)}

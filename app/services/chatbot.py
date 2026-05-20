@@ -10,6 +10,7 @@ injection lands in slice 11.
 
 from __future__ import annotations
 
+import inspect
 import json
 import uuid
 from typing import Any, AsyncIterator
@@ -24,7 +25,10 @@ SYSTEM_PROMPT = (
     "Use the provided tools when they directly fit the user's request. "
     "When a tool returns a result, you MUST quote the exact field values from the result "
     "(label, confidence, ...) verbatim. Never substitute, paraphrase, or invent values. "
-    "If the tool returned label='question', you write 'question' — not any other word."
+    "If the tool returned label='question', you write 'question' — not any other word. "
+    "When search_knowledge returns passages, ground your answer in those passages and cite "
+    "each fact using the result's `citation` field verbatim (e.g. 'User Guide > IO > CSV' "
+    "or '#61809'). Do not invent breadcrumbs, section names, or issue numbers."
 )
 
 
@@ -67,11 +71,11 @@ async def run_turn(user_msg: str, conversation_id: str | None = None) -> AsyncIt
                 args = {}
             yield {"type": "tool_call_start", "name": tc["name"], "args": args}
             handler = TOOL_DISPATCH.get(tc["name"])
-            result = (
-                handler(**args)
-                if handler
-                else {"ok": False, "error": "tool_not_registered", "detail": tc["name"]}
-            )
+            if handler is None:
+                result = {"ok": False, "error": "tool_not_registered", "detail": tc["name"]}
+            else:
+                value = handler(**args)
+                result = await value if inspect.isawaitable(value) else value
             yield {"type": "tool_call_result", "name": tc["name"], "result": result}
             messages.append(
                 {

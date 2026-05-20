@@ -2,16 +2,20 @@
 
 Slice 03: `classify_issue`.
 Slice 05: + `extract_entities`, `summarize_thread`.
-Remaining tools (`search_knowledge`, `write_memory`) land in their owning
-slices (07, 11).
+Slice 06: + `search_knowledge` (dense-only naive RAG).
+`write_memory` lands in slice 11.
 
 Each schema includes both a "use when" rubric and a "do not use when" guard
 to bound the LLM's selection (PRD Q28 mitigation for Llama tool-call drift).
+
+Tool handlers may be either sync or async; the chatbot agent loop awaits the
+return value when it's a coroutine.
 """
 
 from __future__ import annotations
 
-from typing import Callable
+import inspect
+from typing import Any, Callable
 
 from app.domain.exceptions import ToolFailure
 from app.infra.model_server_client import ModelServerClient
@@ -65,6 +69,33 @@ EXTRACT_ENTITIES_SCHEMA: dict = {
 }
 
 
+SEARCH_KNOWLEDGE_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "search_knowledge",
+        "description": (
+            "Search the pandas project knowledge base (docs + resolved issues) and return "
+            "up to 5 cited passages. "
+            "USE WHEN: the user asks a project question ('how do I X', 'why does Y happen', "
+            "'what does Z do', or anything about pandas behavior, docs, or past issues). "
+            "DO NOT USE WHEN: the user pastes raw issue text and asks for a classification, "
+            "summary, or entity extraction — those are handled by other tools."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language search query.",
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 SUMMARIZE_THREAD_SCHEMA: dict = {
     "type": "function",
     "function": {
@@ -112,8 +143,42 @@ def _tool_summarize_thread(text: str) -> dict:
     return {"ok": True, "summary": summary}
 
 
-def _wrap(fn: Callable[..., dict]) -> Callable[..., dict]:
-    """Convert any ToolFailure into the LLM-visible {ok:false} envelope."""
+async def _tool_search_knowledge(query: str) -> dict:
+    from app.services.rag import RAGService
+
+    svc = RAGService()
+    hits = await svc.retrieve(query, top_k=5)
+    return {
+        "ok": True,
+        "results": [
+            {
+                "citation": h.citation(),
+                "content_type": h.content_type,
+                "source_id": h.source_id,
+                "score": round(h.score, 4),
+                "text": h.text,
+            }
+            for h in hits
+        ],
+    }
+
+
+def _wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Convert any ToolFailure into the LLM-visible {ok:false} envelope.
+
+    Works for both sync and async handlers; the chatbot loop awaits the
+    return value when it's a coroutine.
+    """
+
+    if inspect.iscoroutinefunction(fn):
+
+        async def arunner(**kwargs):
+            try:
+                return await fn(**kwargs)
+            except ToolFailure as exc:
+                return {"ok": False, "error": exc.code, "detail": str(exc)}
+
+        return arunner
 
     def runner(**kwargs):
         try:
@@ -128,9 +193,11 @@ TOOL_SCHEMAS: list[dict] = [
     CLASSIFY_ISSUE_SCHEMA,
     EXTRACT_ENTITIES_SCHEMA,
     SUMMARIZE_THREAD_SCHEMA,
+    SEARCH_KNOWLEDGE_SCHEMA,
 ]
-TOOL_DISPATCH: dict[str, Callable[..., dict]] = {
+TOOL_DISPATCH: dict[str, Callable[..., Any]] = {
     "classify_issue": _wrap(_tool_classify_issue),
     "extract_entities": _wrap(_tool_extract_entities),
     "summarize_thread": _wrap(_tool_summarize_thread),
+    "search_knowledge": _wrap(_tool_search_knowledge),
 }
