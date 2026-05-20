@@ -1,0 +1,87 @@
+# Mirrors .gitignore where it matters for build context size + cache hits.
+# Keep it conservative: every COPY in docker/*.Dockerfile is path-scoped, so
+# excluding a path here only shrinks the tarball sent to the daemon.
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+.venv-wsl/
+venv/
+env/
+.uv_cache/
+*.egg-info/
+
+# Secrets / local env
+.env
+!.env.example
+*.pem
+*.key
+
+# Tests + reports (not COPY'd, but bloat the context)
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+reports/
+evals/cache/
+evals/reports/
+
+# Data + model artefacts
+data/
+*.pt
+*.bin
+*.safetensors
+*.onnx
+*.npz
+
+# Frontend build outputs (widget is rebuilt in its own image)
+node_modules/
+widget/dist/
+streamlit_app/.streamlit/secrets.toml
+
+# Docs + scratch (top-level only — DON'T strip prompts/*.md, those ship in
+# the api image)
+docs/
+.scratch/
+.claude/
+/CLAUDE.md
+/README.md
+/RUNBOOK.md
+/PRD.md
+/ARCH.md
+/DECISIONS.md
+/EVALS.md
+/SECURITY.md
+/project-7-brief.md
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI / build cruft
+dist/
+build/
+*.log
+wandb/
+
+# Local migrations cruft (the migrate image still COPYs migrations/)
+*.sqlite
+*.sqlite3
+
+# Don't ship docker-compose / images into the build context
+docker-compose*.yml
+docker/*.md
