@@ -58,7 +58,14 @@ async def pg_pool(pg_available: bool, pg_dsn: str) -> AsyncIterator:
         pytest.skip("Postgres not reachable.")
     import asyncpg
 
-    pool = await asyncpg.create_pool(pg_dsn, min_size=1, max_size=2)
+    async def _init(conn):
+        # Register pgvector codec so test pool matches production
+        # (app/infra/db.py registers the same on _init_conn).
+        from pgvector.asyncpg import register_vector
+
+        await register_vector(conn)
+
+    pool = await asyncpg.create_pool(pg_dsn, min_size=1, max_size=2, init=_init)
     try:
         yield pool
     finally:

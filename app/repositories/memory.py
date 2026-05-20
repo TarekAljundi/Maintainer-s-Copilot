@@ -14,9 +14,20 @@ from app.infra.db import acquire
 from app.repositories.audit import write_audit
 
 
-def _vector_literal(vec: list[float]) -> str:
-    """pgvector accepts text input `[1.0, 2.0, ...]` for VECTOR(N) columns."""
-    return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
+def _encode_embedding(vec):
+    """Encode a list[float] for an asyncpg VECTOR column.
+
+    Production pool registers the pgvector asyncpg codec (see app/infra/db.py
+    _init_conn), so passing a numpy ndarray of dtype float32 lets the codec
+    serialize without a text round-trip. Test pools that don't register the
+    codec accept the string literal `[f1,f2,...]` and let Postgres coerce.
+    """
+    try:
+        import numpy as np
+
+        return np.asarray(vec, dtype=np.float32)
+    except ImportError:
+        return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
 
 
 async def insert_memory_with_audit(
@@ -39,7 +50,7 @@ async def insert_memory_with_audit(
                 """
                 INSERT INTO episodic_memories
                     (user_id, conversation_id, summary, entities, source_msg_ids, embedding)
-                VALUES ($1, $2, $3, $4, $5, $6::vector)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id
                 """,
                 UUID(user_id),
@@ -47,7 +58,7 @@ async def insert_memory_with_audit(
                 summary,
                 entities,
                 source_msg_ids,
-                _vector_literal(embedding),
+                _encode_embedding(embedding),
             )
             await write_audit(
                 actor=user_id,
@@ -88,15 +99,15 @@ async def _execute_similarity(
             """
             SELECT id, user_id, conversation_id, summary, entities, source_msg_ids,
                    created_at, last_recalled_at,
-                   1 - (embedding <=> $2::vector) AS similarity
+                   1 - (embedding <=> $2) AS similarity
             FROM episodic_memories
             WHERE user_id = $1
-              AND (embedding <=> $2::vector) <= $4
-            ORDER BY embedding <=> $2::vector ASC
+              AND (embedding <=> $2) <= $4
+            ORDER BY embedding <=> $2 ASC
             LIMIT $3
             """,
             UUID(user_id),
-            _vector_literal(query_embedding),
+            _encode_embedding(query_embedding),
             top_k,
             max_distance,
         )

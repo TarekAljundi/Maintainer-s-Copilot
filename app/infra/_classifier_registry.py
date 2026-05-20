@@ -12,6 +12,6 @@ from __future__ import annotations
 LABELS: tuple[str, ...] = ("bug", "feature", "docs", "question")
 
 # Set by scripts/train_classifier.py:rewrite_registry().
-WEIGHTS_SHA256: str = "f4a5c67f8e72119a97270bb7a93a3657bcf9ee3db73cbe4f74123636261a0975"
+WEIGHTS_SHA256: str = "efb5388e886552d6c35ac861b1b8bcf6e28b91b168346957f3c646bbe88ba21e"
 WEIGHTS_BUCKET: str = "mc-models"
 WEIGHTS_PREFIX: str = "classifier/v1"
