@@ -1,8 +1,9 @@
-"""FastAPI app factory + lifespan w/ boot checks. See PRD §Boot-time refusal."""
+"""FastAPI app factory + lifespan. Boot checks live in app/boot — the
+lifespan delegates to BootValidator.validate_all() which surfaces the first
+failing check as `BOOT FAIL #N: ...` + SystemExit(1)."""
 
 from __future__ import annotations
 
-import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -13,60 +14,14 @@ from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.memory import router as memory_router
 from app.api.middleware import RequestIDMiddleware
-from app.domain.exceptions import ClassifierUnavailable, InfraError, VaultError
-from app.infra import tracing
-from app.infra._classifier_registry import WEIGHTS_SHA256
+from app.boot import BootValidator
 from app.infra.logging import configure as configure_logging
-from app.infra.model_server_client import ModelServerClient
-from app.infra.vault import REQUIRED_PATHS, get_vault
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
-    vault = get_vault()
-
-    # Boot check #1: Vault reachable (unsealed).
-    if not vault.health():
-        print("BOOT FAIL #1: vault unreachable or sealed", file=sys.stderr)
-        raise SystemExit(1)
-
-    # Boot check #2: all required secret paths load.
-    try:
-        vault.load_all(REQUIRED_PATHS)
-    except VaultError as exc:
-        print(f"BOOT FAIL #2: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
-    # Boot check #4: model-server reports classifier_loaded=true.
-    # Boot check #5: model-server-reported weights_sha matches the pinned value
-    #                in app.infra._classifier_registry.WEIGHTS_SHA256.
-    try:
-        ms_health = ModelServerClient().health()
-    except ClassifierUnavailable as exc:
-        print(f"BOOT FAIL #4: model-server unreachable: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
-    if not ms_health.get("classifier_loaded"):
-        print("BOOT FAIL #4: model-server reports classifier_loaded=false", file=sys.stderr)
-        raise SystemExit(1)
-
-    reported_sha = ms_health.get("weights_sha") or ""
-    if WEIGHTS_SHA256 and reported_sha != WEIGHTS_SHA256:
-        print(
-            f"BOOT FAIL #5: weights SHA mismatch — pinned={WEIGHTS_SHA256} reported={reported_sha}",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-
-    # Boot check #6: Langfuse auth — keys validate against the configured host.
-    try:
-        tracing.init_tracing()
-    except InfraError as exc:
-        print(f"BOOT FAIL #6: tracing init failed: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
-    # TODO slices 14/15: checks #3 (db head), #7 (eval thresholds), #8 (prompt SHAs).
+    await BootValidator().validate_all()
     yield
 
 
