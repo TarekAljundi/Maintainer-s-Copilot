@@ -1,11 +1,11 @@
 """HTTP client to model-server. Maps failures -> ToolFailure subclasses.
 
 Interface:
-    classify(text), extract(text), summarize(text),
-    rerank(query, candidates), embed(texts, mode='query'|'passage')
+    classify(text), extract(text), embed(texts, mode='query'|'passage')
 
-Slice 05: classify + extract + health wired. rerank/embed land with slice 07;
-summarize() is NOT a model-server hop — it lives in app/services/summarizer.py.
+Slice 05: classify + extract + health. Slice 06: embed.
+rerank lands with slice 07; summarize() is NOT a model-server hop — it lives
+in app/services/summarizer.py.
 """
 
 from __future__ import annotations
@@ -14,11 +14,11 @@ import os
 
 import httpx
 
-from app.domain.exceptions import ClassifierUnavailable, NERFailure
+from app.domain.exceptions import ClassifierUnavailable, NERFailure, RAGRetrievalFailure
 
 
 class ModelServerClient:
-    def __init__(self, base_url: str | None = None, timeout: float = 10.0) -> None:
+    def __init__(self, base_url: str | None = None, timeout: float = 30.0) -> None:
         self._base = (
             base_url or os.environ.get("MODEL_SERVER_URL", "http://model-server:8001")
         ).rstrip("/")
@@ -59,3 +59,19 @@ class ModelServerClient:
             except (httpx.HTTPError, httpx.RequestError) as exc:
                 last_exc = exc
         raise NERFailure(f"model-server /extract failed: {last_exc}") from last_exc
+
+    def embed(self, texts: list[str], mode: str = "passage") -> list[list[float]]:
+        """POST /embed -> embeddings list. Maps failures to RAGRetrievalFailure."""
+        last_exc: Exception | None = None
+        for _ in range(2):
+            try:
+                r = httpx.post(
+                    f"{self._base}/embed",
+                    json={"texts": texts, "mode": mode},
+                    timeout=self._timeout,
+                )
+                r.raise_for_status()
+                return r.json()["embeddings"]
+            except (httpx.HTTPError, httpx.RequestError) as exc:
+                last_exc = exc
+        raise RAGRetrievalFailure(f"model-server /embed failed: {last_exc}") from last_exc
