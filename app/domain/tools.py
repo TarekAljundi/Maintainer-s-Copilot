@@ -19,6 +19,7 @@ from contextvars import ContextVar
 from typing import Any, Callable
 
 from app.domain.exceptions import MemoryWriteFailure, ToolFailure
+from app.infra import tracing
 from app.infra.model_server_client import ModelServerClient
 
 
@@ -297,27 +298,35 @@ async def _tool_write_memory(summary: str, entities: list[str] | None = None) ->
 
 
 def _wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Convert any ToolFailure into the LLM-visible {ok:false} envelope.
+    """Convert any ToolFailure into the LLM-visible {ok:false} envelope, plus
+    wrap the call in a tracing span tagged `tool`.
 
-    Works for both sync and async handlers; the chatbot loop awaits the
-    return value when it's a coroutine.
+    Works for both sync and async handlers; the chatbot loop awaits the return
+    value when it's a coroutine.
     """
+    tool_name = fn.__name__.removeprefix("_tool_") or fn.__name__
 
     if inspect.iscoroutinefunction(fn):
 
+        @tracing.observe(as_type="tool", name=f"tool.{tool_name}")
         async def arunner(**kwargs):
             try:
-                return await fn(**kwargs)
+                result = await fn(**kwargs)
             except ToolFailure as exc:
-                return {"ok": False, "error": exc.code, "detail": str(exc)}
+                result = {"ok": False, "error": exc.code, "detail": str(exc)}
+            tracing.update_current_observation(output=result)
+            return result
 
         return arunner
 
+    @tracing.observe(as_type="tool", name=f"tool.{tool_name}")
     def runner(**kwargs):
         try:
-            return fn(**kwargs)
+            result = fn(**kwargs)
         except ToolFailure as exc:
-            return {"ok": False, "error": exc.code, "detail": str(exc)}
+            result = {"ok": False, "error": exc.code, "detail": str(exc)}
+        tracing.update_current_observation(output=result)
+        return result
 
     return runner
 

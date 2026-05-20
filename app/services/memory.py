@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.domain.exceptions import MemoryWriteFailure
+from app.infra import tracing
 from app.infra.model_server_client import ModelServerClient
 from app.infra.redaction import redact
 from app.repositories import memory as memory_repo
@@ -38,6 +39,7 @@ class MemoryService:
     def __init__(self, model_client: ModelServerClient | None = None) -> None:
         self._models = model_client or ModelServerClient()
 
+    @tracing.observe(as_type="memory", name="memory.write")
     async def write(
         self,
         *,
@@ -81,6 +83,7 @@ class MemoryService:
 
         return mid
 
+    @tracing.observe(as_type="memory", name="memory.recall")
     async def recall(
         self,
         *,

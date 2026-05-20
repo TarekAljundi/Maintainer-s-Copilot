@@ -26,6 +26,7 @@ from typing import Any, AsyncIterator
 from openai import AsyncOpenAI
 
 from app.domain.exceptions import LLMProviderError
+from app.infra import tracing
 from app.infra.vault import get_vault
 
 
@@ -79,6 +80,7 @@ def _model() -> str:
 MODEL = _model()  # for backwards-compat reads in callers that import the constant
 
 
+@tracing.observe(as_type="generation", name="llm.stream_chat_with_tools")
 async def stream_chat_with_tools(
     messages: list[dict[str, Any]],
     tools: list[dict] | None = None,
@@ -105,6 +107,11 @@ async def stream_chat_with_tools(
     }
     if tools:
         kwargs["tools"] = tools
+
+    tracing.update_current_observation(
+        model=_model(),
+        metadata={"provider": cfg.name, "temperature": temperature},
+    )
 
     try:
         stream = await client.chat.completions.create(**kwargs)

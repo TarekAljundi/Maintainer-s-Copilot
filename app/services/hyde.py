@@ -19,6 +19,7 @@ from typing import Any
 from groq import Groq
 
 from app.domain.exceptions import LLMProviderError, RAGRetrievalFailure
+from app.infra import tracing
 from app.infra.vault import get_vault
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ def _render_prompt(query: str) -> str:
     return PROMPT_PATH.read_text(encoding="utf-8").replace("{query}", query)
 
 
+@tracing.observe(as_type="generation", name="hyde.generate")
 def generate(query: str, *, client: Any | None = None, use_cache: bool = True) -> str:
     """Return a 3-4 sentence hypothetical pandas-doc passage answering the query.
 
