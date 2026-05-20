@@ -1,10 +1,11 @@
 FROM python:3.11-slim
 WORKDIR /app
 RUN pip install --no-cache-dir uv
-COPY pyproject.toml ./
+COPY pyproject.toml alembic.ini ./
 COPY app ./app
 COPY model_server ./model_server
 COPY prompts ./prompts
+COPY migrations ./migrations
 COPY eval_thresholds.yaml ./
 RUN uv pip install --system -e ".[api]"
 EXPOSE 8000
