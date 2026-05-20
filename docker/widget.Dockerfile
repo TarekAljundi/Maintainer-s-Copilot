@@ -6,6 +6,8 @@ COPY widget/ ./
 RUN npm run build
 
 FROM nginx:alpine
+# `widget` nginx serves the Vite-built Preact bundle as /widget-bundle.js.
+# The public-facing /widget.js loader is served by the FastAPI api container
+# (see app/api/loader.py).
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY widget/public/loader.js /usr/share/nginx/html/widget.js
 EXPOSE 80

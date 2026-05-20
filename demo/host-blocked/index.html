@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Maintainer's Copilot — Blocked host demo</title>
+    <style>
+      body { font-family: system-ui,-apple-system,sans-serif; margin: 40px auto; max-width: 720px; padding: 0 16px; color: #0f172a; }
+      h1 { margin-top: 0; }
+      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #fee2e2; color: #991b1b; }
+      code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
+      .check { color: #475569; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <h1>Maintainer's Copilot <span class="pill">blocked origin</span></h1>
+    <p>This page's origin is <strong>not</strong> in the widget's
+    <code>allowed_origins</code>. The loader script will still inject the iframe,
+    but the browser refuses to render it because the embed route returns
+    <code>Content-Security-Policy: frame-ancestors</code> without this host listed.</p>
+    <p class="check">Verification: open the browser dev tools — the Console shows a
+    CSP violation report; the Network tab shows the
+    <code>Content-Security-Policy</code> response header on
+    <code>GET /widget/.../embed</code>.</p>
+
+    <!-- Same snippet as the allowed host — the only thing that differs is the
+         origin this page is served from. -->
+    <script src="http://localhost:8000/widget.js"
+            data-widget-id="REPLACE_ME"
+            data-api-base="http://localhost:8000"></script>
+  </body>
+</html>

@@ -5,11 +5,18 @@ export default defineConfig({
   plugins: [preact()],
   resolve: {
     alias: {
-      'react': 'preact/compat',
+      react: 'preact/compat',
       'react-dom': 'preact/compat',
     },
   },
   build: {
+    target: 'es2019',
+    minify: 'terser',
+    terserOptions: {
+      compress: { passes: 2 },
+      mangle: true,
+    },
+    chunkSizeWarningLimit: 50,
     rollupOptions: {
       output: {
         manualChunks: undefined,
@@ -20,7 +27,10 @@ export default defineConfig({
       entry: 'src/widget.tsx',
       formats: ['iife'],
       name: 'MaintainerCopilot',
-      fileName: () => 'widget.js',
+      // The bundle is served by the `widget` nginx container as
+      // /widget-bundle.js; the public loader served by FastAPI lives at
+      // /widget.js so the two never collide.
+      fileName: () => 'widget-bundle.js',
     },
   },
 })
