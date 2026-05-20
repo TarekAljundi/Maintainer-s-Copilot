@@ -1,6 +1,5 @@
-import { createContext } from 'preact'
-import { useContext, useEffect, useState } from 'preact/hooks'
-import type { ComponentChildren } from 'preact'
+// Shared widget types. Context-free now — we pass these through props instead
+// (Preact 10 context with a null default was misbehaving in the IIFE bundle).
 
 export interface WidgetConfig {
   id: string
@@ -19,44 +18,8 @@ export interface WidgetSession {
   expires_in: number
 }
 
-interface WidgetCtxValue {
+export interface WidgetRuntime {
   config: WidgetConfig
   session: WidgetSession
   apiBase: string
-  themeOverride: string | null
-}
-
-const WidgetCtx = createContext<WidgetCtxValue | null>(null)
-
-interface ProviderProps {
-  config: WidgetConfig
-  session: WidgetSession
-  apiBase: string
-  children: ComponentChildren
-}
-
-export function WidgetProvider({ config, session, apiBase, children }: ProviderProps) {
-  const [themeOverride, setThemeOverride] = useState<string | null>(null)
-
-  useEffect(() => {
-    // Listen for `mc:theme` from the host page. Origin check: anything (we're
-    // inside an iframe; the parent could be any allowed origin).
-    function onMessage(ev: MessageEvent) {
-      if (!ev.data || typeof ev.data !== 'object') return
-      if (ev.data.type === 'mc:theme' && ev.data.payload?.primaryColor) {
-        setThemeOverride(String(ev.data.payload.primaryColor))
-      }
-    }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [])
-
-  const value: WidgetCtxValue = { config, session, apiBase, themeOverride }
-  return <WidgetCtx.Provider value={value}>{children}</WidgetCtx.Provider>
-}
-
-export function useWidget(): WidgetCtxValue {
-  const v = useContext(WidgetCtx)
-  if (!v) throw new Error('useWidget must be used inside WidgetProvider')
-  return v
 }

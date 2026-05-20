@@ -3,7 +3,6 @@
 
 import { useCallback, useState } from 'preact/hooks'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
-import { useWidget } from '../context'
 
 export interface ToolCall {
   id: string
@@ -35,10 +34,11 @@ function randomId(): string {
 
 interface UseChatArgs {
   conversationId: string
+  apiBase: string
+  token: string
 }
 
-export function useChat({ conversationId }: UseChatArgs) {
-  const { apiBase, session } = useWidget()
+export function useChat({ conversationId, apiBase, token }: UseChatArgs) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [pending, setPending] = useState(false)
 
@@ -63,7 +63,7 @@ export function useChat({ conversationId }: UseChatArgs) {
           signal: controller.signal,
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.token}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ message: text, conversation_id: conversationId }),
           openWhenHidden: true,
@@ -120,7 +120,7 @@ export function useChat({ conversationId }: UseChatArgs) {
         console.warn('[maintainer-copilot] chat stream ended:', err)
       }
     },
-    [apiBase, session.token, conversationId],
+    [apiBase, token, conversationId],
   )
 
   return { messages, pending, send }
