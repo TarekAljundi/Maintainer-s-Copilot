@@ -13,7 +13,6 @@ PRD §Chatbot Q17 + §Tier 2 tests — MemoryService:
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -111,9 +110,7 @@ async def test_write_persists_redacted_summary(
     assert "[REDACTED:github_token]" in row["summary"]
 
 
-async def test_write_and_audit_in_single_transaction(
-    pg_pool, isolated_user: str, app_db_pool
-):
+async def test_write_and_audit_in_single_transaction(pg_pool, isolated_user: str, app_db_pool):
     """AC: memory row + audit row land in the same transaction."""
     from app.services.memory import MemoryService
 
@@ -156,12 +153,8 @@ async def test_recall_is_user_scoped(pg_pool, app_db_pool):
             )
     try:
         svc = MemoryService(model_client=_FakeEmbed())
-        await svc.write(
-            user_id=uid_a, summary="User A: deep into Indexing.copy issue."
-        )
-        await svc.write(
-            user_id=uid_b, summary="User B: focused on Series.dt timezone bugs."
-        )
+        await svc.write(user_id=uid_a, summary="User A: deep into Indexing.copy issue.")
+        await svc.write(user_id=uid_b, summary="User B: focused on Series.dt timezone bugs.")
 
         # User B queries semantically close to A's memory.
         hits_b = await svc.recall(
@@ -189,9 +182,7 @@ async def test_recall_is_user_scoped(pg_pool, app_db_pool):
             )
 
 
-async def test_cross_conversation_recall_same_user(
-    pg_pool, isolated_user: str, app_db_pool
-):
+async def test_cross_conversation_recall_same_user(pg_pool, isolated_user: str, app_db_pool):
     """PRD cross-conv demo: write in conv A, recall in conv B (same user)."""
     from app.services.memory import MemoryService
 
@@ -226,15 +217,12 @@ async def test_recall_writes_audit_row(pg_pool, isolated_user: str, app_db_pool)
     svc = MemoryService(model_client=_FakeEmbed())
     await svc.write(user_id=isolated_user, summary="Marker memory for audit test.")
 
-    hits = await svc.recall(
-        user_id=isolated_user, query="marker", top_k=5, min_similarity=0.0
-    )
+    hits = await svc.recall(user_id=isolated_user, query="marker", top_k=5, min_similarity=0.0)
     assert hits, "test prerequisite: at least one hit"
 
     async with pg_pool.acquire() as conn:
         recall_count = await conn.fetchval(
-            "SELECT count(*) FROM audit_log "
-            "WHERE actor = $1 AND action = 'memory_recall'",
+            "SELECT count(*) FROM audit_log WHERE actor = $1 AND action = 'memory_recall'",
             isolated_user,
         )
     assert recall_count >= 1

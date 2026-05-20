@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 from typing import Any, AsyncIterator
-from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -74,6 +73,7 @@ def _build_app() -> FastAPI:
 @pytest.fixture
 def client_no_tool(monkeypatch) -> TestClient:
     monkeypatch.setattr("app.services.chatbot.stream_chat_with_tools", _fake_stream_no_tool)
+
     # Stub out memory recall so test doesn't need a real Postgres.
     async def _no_recall(*_a, **_kw):
         return []

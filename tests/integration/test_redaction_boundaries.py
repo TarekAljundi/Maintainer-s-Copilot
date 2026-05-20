@@ -86,8 +86,8 @@ def test_boundary_2_tracing_mask_redacts():
 @pytest.mark.asyncio
 async def test_boundary_3_memory_write_redacts_summary_before_persist(monkeypatch):
     """MemoryService.write must redact `summary` before:
-      - embedding it (so the vector doesn't encode the secret)
-      - persisting it (so the summary column doesn't carry the secret)
+    - embedding it (so the vector doesn't encode the secret)
+    - persisting it (so the summary column doesn't carry the secret)
     """
     from app.services.memory import MemoryService
 
@@ -107,9 +107,7 @@ async def test_boundary_3_memory_write_redacts_summary_before_persist(monkeypatc
         captured_summary["summary"] = kwargs["summary"]
         return "00000000-0000-0000-0000-000000000001"
 
-    monkeypatch.setattr(
-        "app.repositories.memory.insert_memory_with_audit", _fake_insert
-    )
+    monkeypatch.setattr("app.repositories.memory.insert_memory_with_audit", _fake_insert)
 
     svc = MemoryService(model_client=_FakeClient())
     await svc.write(

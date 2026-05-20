@@ -32,24 +32,28 @@ async def auth_app(pg_available, monkeypatch):
     from app.infra import vault as vault_module
 
     vault = vault_module.get_vault()
-    monkeypatch.setattr(vault, "_cache", {
-        "shared/jwt": {"signing_key": "test-signing-key-not-for-prod-32b!"},
-        "api/db": {"url": "postgresql+asyncpg://copilot@localhost:5432/copilot"},
-        "api/redis": {"url": "redis://localhost:6379/15"},
-        "api/llm": {"groq_api_key": "placeholder"},
-        "api/tracing": {
-            "langfuse_public_key": "placeholder",
-            "langfuse_secret_key": "placeholder",
-            "langfuse_host": "http://localhost:3000",
+    monkeypatch.setattr(
+        vault,
+        "_cache",
+        {
+            "shared/jwt": {"signing_key": "test-signing-key-not-for-prod-32b!"},
+            "api/db": {"url": "postgresql+asyncpg://copilot@localhost:5432/copilot"},
+            "api/redis": {"url": "redis://localhost:6379/15"},
+            "api/llm": {"groq_api_key": "placeholder"},
+            "api/tracing": {
+                "langfuse_public_key": "placeholder",
+                "langfuse_secret_key": "placeholder",
+                "langfuse_host": "http://localhost:3000",
+            },
+            "api/blob": {
+                "endpoint": "localhost:9000",
+                "access_key": "minioadmin",
+                "secret_key": "minioadmin",
+                "bucket": "mc-evals",
+            },
+            "streamlit/api": {"api_base": "http://localhost:8000"},
         },
-        "api/blob": {
-            "endpoint": "localhost:9000",
-            "access_key": "minioadmin",
-            "secret_key": "minioadmin",
-            "bucket": "mc-evals",
-        },
-        "streamlit/api": {"api_base": "http://localhost:8000"},
-    })
+    )
 
     from app.infra import sa_db
 
@@ -91,16 +95,12 @@ async def test_register_login_me(client):
     assert user["email"] == email
     assert user["role"] == "user"
 
-    r = await client.post(
-        "/auth/jwt/login", data={"username": email, "password": pw}
-    )
+    r = await client.post("/auth/jwt/login", data={"username": email, "password": pw})
     assert r.status_code == 200, r.text
     token = r.json()["access_token"]
     assert token
 
-    r = await client.get(
-        "/api/me", headers={"Authorization": f"Bearer {token}"}
-    )
+    r = await client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200, r.text
     me = r.json()
     assert me["kind"] == "user"
@@ -112,9 +112,7 @@ async def test_me_rejects_missing_or_bogus_token(client):
     r = await client.get("/api/me")
     assert r.status_code == 401
 
-    r = await client.get(
-        "/api/me", headers={"Authorization": "Bearer not-a-jwt"}
-    )
+    r = await client.get("/api/me", headers={"Authorization": "Bearer not-a-jwt"})
     assert r.status_code == 401
 
 
@@ -138,9 +136,7 @@ async def test_revoke_returns_ok_without_jti(client):
         algorithm="HS256",
     )
 
-    r = await client.post(
-        "/auth/jwt/revoke", headers={"Authorization": f"Bearer {token}"}
-    )
+    r = await client.post("/auth/jwt/revoke", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is True

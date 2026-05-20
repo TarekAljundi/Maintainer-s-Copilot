@@ -57,7 +57,9 @@ async def invite_user(
     try:
         user = await manager.create(create)
     except UserAlreadyExists as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email already exists") from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="email already exists"
+        ) from exc
 
     await write_audit(
         actor=str(admin.id),

@@ -57,9 +57,7 @@ def _provider() -> _ProviderConfig:
     name = os.environ.get("LLM_PROVIDER", "groq").strip().lower()
     cfg = _PROVIDERS.get(name)
     if cfg is None:
-        raise LLMProviderError(
-            f"unknown LLM_PROVIDER={name!r}; expected one of {list(_PROVIDERS)}"
-        )
+        raise LLMProviderError(f"unknown LLM_PROVIDER={name!r}; expected one of {list(_PROVIDERS)}")
     return cfg
 
 
@@ -68,8 +66,7 @@ def _api_key(cfg: _ProviderConfig) -> str:
     key = secrets.get(cfg.api_key_field) or ""
     if not key or key == "placeholder":
         raise LLMProviderError(
-            f"vault api/llm.{cfg.api_key_field} missing or placeholder "
-            f"for LLM_PROVIDER={cfg.name}"
+            f"vault api/llm.{cfg.api_key_field} missing or placeholder for LLM_PROVIDER={cfg.name}"
         )
     return key
 

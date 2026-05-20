@@ -30,7 +30,6 @@ from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, schemas
 from fastapi_users.authentication import AuthenticationBackend, BearerTransport, JWTStrategy
 from fastapi_users.db import SQLAlchemyUserDatabase
 
-from app.domain.exceptions import PermissionDenied
 from app.infra.vault import get_vault
 from app.repositories.users import User, get_user_db
 

@@ -74,8 +74,7 @@ def upgrade() -> None:
         "WITH (m = 16, ef_construction = 64)"
     )
     op.execute(
-        "CREATE INDEX episodic_memories_entities_gin_idx ON episodic_memories "
-        "USING GIN (entities)"
+        "CREATE INDEX episodic_memories_entities_gin_idx ON episodic_memories USING GIN (entities)"
     )
     op.execute(
         "CREATE INDEX episodic_memories_user_created_idx ON episodic_memories "
