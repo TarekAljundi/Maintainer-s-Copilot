@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import MutableMapping
 from contextvars import ContextVar
 from typing import Any
 
@@ -27,7 +28,9 @@ def bind_trace_id(tid: str | None) -> None:
     _trace_id.set(tid)
 
 
-def _inject_context(_logger: Any, _name: str, event_dict: dict) -> dict:
+def _inject_context(
+    _logger: Any, _name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
     rid = _request_id.get()
     tid = _trace_id.get()
     if rid is not None:
@@ -37,7 +40,9 @@ def _inject_context(_logger: Any, _name: str, event_dict: dict) -> dict:
     return event_dict
 
 
-def _redact_processor(_logger: Any, _name: str, event_dict: dict) -> dict:
+def _redact_processor(
+    _logger: Any, _name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
     """Boundary 1 — every event_dict is walked before emission."""
     return redact_obj(event_dict)
 
