@@ -25,6 +25,7 @@ import logging
 from typing import Iterable, Literal
 
 from app.domain.chunks import RetrievalFilters, RetrievedChunk
+from app.infra import tracing
 from app.infra.model_server_client import ModelServerClient
 from app.repositories import chunks as chunks_repo
 from app.services import hyde as hyde_svc
@@ -119,6 +120,7 @@ class RAGService:
     def __init__(self, model_server: ModelServerClient | None = None) -> None:
         self._ms = model_server or ModelServerClient()
 
+    @tracing.observe(as_type="retrieval", name="rag.retrieve")
     async def retrieve(
         self,
         query: str,

@@ -7,11 +7,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api import error_handlers
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.memory import router as memory_router
-from app.domain.exceptions import ClassifierUnavailable, VaultError
+from app.api.middleware import RequestIDMiddleware
+from app.domain.exceptions import ClassifierUnavailable, InfraError, VaultError
+from app.infra import tracing
 from app.infra._classifier_registry import WEIGHTS_SHA256
 from app.infra.logging import configure as configure_logging
 from app.infra.model_server_client import ModelServerClient
@@ -56,13 +59,21 @@ async def lifespan(app: FastAPI):
         )
         raise SystemExit(1)
 
-    # TODO slices 12/14/15: checks #3 (db head), #6 (tracing), #7 (eval thresholds),
-    # #8 (prompt SHAs).
+    # Boot check #6: Langfuse auth — keys validate against the configured host.
+    try:
+        tracing.init_tracing()
+    except InfraError as exc:
+        print(f"BOOT FAIL #6: tracing init failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    # TODO slices 14/15: checks #3 (db head), #7 (eval thresholds), #8 (prompt SHAs).
     yield
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Maintainer's Copilot API", lifespan=lifespan)
+    app.add_middleware(RequestIDMiddleware)
+    error_handlers.register(app)
     app.include_router(chat_router, prefix="/api")
     app.include_router(memory_router, prefix="/api")
     app.include_router(auth_router)

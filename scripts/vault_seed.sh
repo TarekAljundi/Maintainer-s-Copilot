@@ -14,9 +14,9 @@ vault kv put secret/api/llm \
   openrouter_api_key="${OPENROUTER_API_KEY:-placeholder}"
 
 vault kv put secret/api/tracing \
-  langfuse_public_key="placeholder" \
-  langfuse_secret_key="placeholder" \
-  langfuse_host="http://langfuse:3000"
+  langfuse_public_key="${LANGFUSE_PUBLIC_KEY:-placeholder}" \
+  langfuse_secret_key="${LANGFUSE_SECRET_KEY:-placeholder}" \
+  langfuse_host="${LANGFUSE_HOST:-http://langfuse:3000}"
 
 vault kv put secret/api/db \
   url="postgresql+asyncpg://${POSTGRES_USER:-copilot}@db:5432/${POSTGRES_DB:-copilot}"

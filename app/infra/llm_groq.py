@@ -26,6 +26,7 @@ from typing import Any, AsyncIterator
 from openai import AsyncOpenAI
 
 from app.domain.exceptions import LLMProviderError
+from app.infra import tracing
 from app.infra.vault import get_vault
 
 
@@ -79,6 +80,7 @@ def _model() -> str:
 MODEL = _model()  # for backwards-compat reads in callers that import the constant
 
 
+@tracing.observe(as_type="generation", name="llm.stream_chat_with_tools")
 async def stream_chat_with_tools(
     messages: list[dict[str, Any]],
     tools: list[dict] | None = None,
@@ -102,15 +104,36 @@ async def stream_chat_with_tools(
         "messages": messages,
         "temperature": temperature,
         "stream": True,
+        # OpenAI-compat servers (Groq + OpenRouter both honor it) emit a final
+        # chunk with `usage` populated when this flag is set. Required for
+        # Langfuse generation spans to report prompt/completion/total tokens
+        # (and therefore cost — Langfuse derives cost from tokens × model rate).
+        "stream_options": {"include_usage": True},
     }
     if tools:
         kwargs["tools"] = tools
+
+    tracing.update_current_observation(
+        model=_model(),
+        metadata={"provider": cfg.name, "temperature": temperature},
+    )
 
     try:
         stream = await client.chat.completions.create(**kwargs)
         tool_calls_buf: dict[int, dict] = {}
         finish_reason: str | None = None
+        usage: dict[str, Any] | None = None
         async for chunk in stream:
+            if getattr(chunk, "usage", None):
+                u = chunk.usage
+                # Langfuse ModelUsage (legacy) shape — broadly accepted across
+                # langfuse v2 minor versions and ingestion endpoints.
+                usage = {
+                    "input": int(getattr(u, "prompt_tokens", 0) or 0),
+                    "output": int(getattr(u, "completion_tokens", 0) or 0),
+                    "total": int(getattr(u, "total_tokens", 0) or 0),
+                    "unit": "TOKENS",
+                }
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
@@ -132,6 +155,8 @@ async def stream_chat_with_tools(
                             buf["arguments"] += tc.function.arguments
             if choice.finish_reason:
                 finish_reason = choice.finish_reason
+        if usage is not None:
+            tracing.update_current_observation(usage=usage)
         yield {
             "type": "stream_end",
             "finish_reason": finish_reason or "stop",
