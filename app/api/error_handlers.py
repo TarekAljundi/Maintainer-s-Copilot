@@ -56,9 +56,7 @@ def register(app: FastAPI) -> None:
         )
 
     @app.exception_handler(RequestValidationError)
-    async def _validation_handler(
-        request: Request, exc: RequestValidationError
-    ) -> JSONResponse:
+    async def _validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         rid = _request_id(request)
         tid = tracing.trace_id()
         return JSONResponse(

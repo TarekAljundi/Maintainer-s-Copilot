@@ -110,7 +110,9 @@ def _assert_recovery(events: list[dict], terminator: bool, expected_code: str):
     assert results[0]["result"]["ok"] is False
     assert results[0]["result"]["error"] == expected_code
     assert "".join(tokens), "hedge tokens should stream after the failed tool"
-    assert any(word in "".join(tokens).lower() for word in ("sorry", "couldn't", "couldnt", "could not"))
+    assert any(
+        word in "".join(tokens).lower() for word in ("sorry", "couldn't", "couldnt", "could not")
+    )
     assert len(done) == 1
     assert terminator
 

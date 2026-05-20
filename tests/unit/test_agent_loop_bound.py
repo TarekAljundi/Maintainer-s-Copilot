@@ -17,7 +17,9 @@ from app.services import chatbot
 def _make_always_tool_call_stream():
     """Fake LLM that always returns a tool_call → forces unbounded recursion."""
 
-    async def stream(messages: list[dict], tools: list[dict] | None = None, temperature: float = 0.2):
+    async def stream(
+        messages: list[dict], tools: list[dict] | None = None, temperature: float = 0.2
+    ):
         yield {
             "type": "stream_end",
             "finish_reason": "tool_calls",
@@ -60,7 +62,9 @@ async def test_agent_loop_caps_at_six_iterations(monkeypatch):
     assert "max_steps_exceeded" in err[0]["message"]
     assert any(e["type"] == "done" for e in events)
     # 6 iterations * 1 tool_call each
-    assert len([e for e in events if e["type"] == "tool_call_start"]) == chatbot.MAX_AGENT_ITERATIONS
+    assert (
+        len([e for e in events if e["type"] == "tool_call_start"]) == chatbot.MAX_AGENT_ITERATIONS
+    )
 
 
 @pytest.mark.asyncio
