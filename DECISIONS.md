@@ -57,9 +57,19 @@ true feature     2       5      0       0
 true docs        1       0      3       0
 true question    3       0      0       4
 ```
-All three models cleanly classify `bug` (7/7) and tie on `feature` (5/7, the 2 misses go to `bug`) and `docs` (3/4, 1 miss to `bug`). Only `question` separates them: deberta + classical get 4/7, llm gets 5/7. The 3-3 misclassifications all come back as `bug` — likely because pandas users label "BUG:"-prefixed titles that are actually usage questions (the golden review noted this).
+All three models cleanly classify `bug` (7/7) and tie on `feature` (5/7, the 2 misses go to `bug`) and `docs` (3/4, 1 miss to `bug`). Only `question` separates them: deberta + classical get 4/7, llm gets 5/7. **deberta and classical produce literally identical predictions on all 25 records** — the title prefix (`BUG:`/`ENH:`/`DOC:`/`QST:`) is so dominant a feature on this slice that architecture barely matters; the 6 shared misses are 5 records with `BUG:`-prefixed titles but non-bug GitHub labels + 1 short body that lacks a prefix entirely.
 
-**Defense (one line):** **deberta deployed** — macro-F1 = 0.779, only 0.036 behind llm (0.815), with 31× lower p50 latency (237ms vs 7.5s) and zero per-prediction cost; classical matches deberta's F1 exactly (literally same predictions on this golden) but lacks the model card + SHA pin the boot check enforces, and is in the comparison only as the brief's mandatory classical baseline.
+### Test-split comparison (n=993) — the deciding numbers
+
+The golden ties; the held-out test split does not. Run on the same artifact:
+
+| Model | Accuracy | Macro-F1 | F1 bug | F1 feature | F1 docs | F1 question |
+|---|---:|---:|---:|---:|---:|---:|
+| deberta | **0.9517** | **0.8959** | 0.9686 | 0.9483 | 0.9167 | **0.7500** |
+| classical | 0.9345 | 0.8431 | 0.9560 | 0.9028 | 0.9280 | 0.5854 |
+| Δ deberta − classical | +0.017 | **+0.053** | +0.013 | +0.046 | −0.011 | **+0.165** |
+
+**Defense (one line):** **deberta deployed** — on the n=993 held-out test split deberta beats classical by +0.053 macro-F1 (driven mostly by +0.16 F1 on the minority `question` class), beats llm on both latency (31× faster p50, 237ms vs 7.5s) and cost ($0 vs $1.11/1k), and is the only model with the SHA-pinned + model-carded artifact the PRD's boot-check #5 requires. The 25-row golden tying deberta and classical is corpus signal — pandas's title-prefix convention dominates that small slice — not evidence the fine-tune is wasted.
 
 ### Historical: fastapi v1 (pre-corpus-swap, kept for narrative)
 
