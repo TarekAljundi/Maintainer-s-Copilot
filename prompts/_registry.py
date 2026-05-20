@@ -24,9 +24,9 @@ PROMPTS_DIR = Path(__file__).parent
 
 PROMPT_SHAS: dict[str, str] = {
     "classify_few_shot": "03170ec39202680a541c768cb1fda232be6e05591ab3a710e3bd5dbdf78bf9d9",
-    "hyde": "523fa7f20e67b57b538b9ba1969ace43cca646c68bacd575dcdf8d45377d45c9",
+    "hyde": "8777279f68cdcf7e93e9836987ad671500def27a9ce1e7b21ebe6ed457c93714",
     "summarize": "b2391f65a24024a83a19ea74a1b00cd019be3f18cbd940925229de9b9bf26e24",
-    "system": "323db0b1bafd8c817b67671645ac8550ff14634c8bc3dc1c30eedae89d0c07a5",
+    "system": "4838c26820f0a990074a8ce4ea9b69690b8e817354be57c54321227ed008a58f",
 }
 
 
@@ -60,4 +60,7 @@ class Prompt(Enum):
 
 
 def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """LF-normalized SHA so Windows checkouts (CRLF) and CI Linux checkouts (LF)
+    produce the same digest. Without this, every Windows-authored pin breaks CI
+    and vice versa."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()

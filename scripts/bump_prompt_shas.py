@@ -19,7 +19,8 @@ REGISTRY = PROMPTS_DIR / "_registry.py"
 
 
 def _sha(p: Path) -> str:
-    return hashlib.sha256(p.read_bytes()).hexdigest()
+    """LF-normalized — see prompts/_registry.py:sha256_file."""
+    return hashlib.sha256(p.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _current_shas() -> dict[str, str]:

@@ -199,9 +199,8 @@ def check_eval_thresholds(yaml_path: Path | None = None) -> None:
 
 
 def _sha256_file(p: Path) -> str:
-    h = hashlib.sha256()
-    h.update(p.read_bytes())
-    return h.hexdigest()
+    """LF-normalized: see prompts/_registry.py:sha256_file for the rationale."""
+    return hashlib.sha256(p.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def check_prompt_shas() -> None:
