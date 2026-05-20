@@ -105,15 +105,31 @@ The original fastapi pull surfaced a data ceiling that motivated the swap.
 Full 25-Q RAGAS generation eval pending Groq TPD reset — see EVALS.md §"Generation eval (RAGAS)".
 
 ## Chatbot
-- LLM: Groq `llama-3.3-70b-versatile`. All slots.
+- LLM: Groq `llama-3.3-70b-versatile` (default) or OpenRouter `nvidia/nemotron-3-super-120b-a12b:free` via `LLM_PROVIDER` env switch. Both clients are OpenAI-compatible — `app/infra/llm_groq.py` routes the same `stream_chat_with_tools` parser through either base URL. Vault `secret/api/llm` carries both `groq_api_key` and `openrouter_api_key`. Smoke verified Nemotron tool-use (write_memory) + cross-conv recall on 2026-05-20. Full bake-off (25-Q golden + tool-call discipline probe) is a follow-up; default stays Groq until the numbers land.
 - Tools: classify_issue, extract_entities, summarize_thread, search_knowledge, write_memory.
 - Memory: episodic in pgvector. Auto-recall on turn start. Explicit `write_memory` tool only.
 - Redis TTLs: conv 24h sliding, tool 1h, embed 24h, RL 60s.
 - Streaming: SSE via fetch-event-source.
 
+### Long-term memory (slices 08+10+11 bundle)
+- **Schema (migration 003):** `episodic_memories(id UUID, user_id UUID FK→users CASCADE, conversation_id, memory_type='episodic', summary, entities TEXT[], source_msg_ids TEXT[], embedding VECTOR(768), created_at, last_recalled_at)`. Indexes: HNSW (m=16, ef_construction=64) on `embedding` with `vector_cosine_ops`, GIN on `entities`, btree on `(user_id, created_at DESC)`.
+- **Audit-log shape:** single shared `audit_log(id BIGSERIAL, actor, action, target_type, target_id, ts, trace_id, payload JSONB)`. One table absorbs memory write/recall, role changes, widget config changes, conversation deletions (PRD U22) — no per-domain table migration when those land.
+- **Write atomicity:** `MemoryService.write` runs the memory INSERT + audit INSERT inside one asyncpg transaction. Redaction happens BEFORE the embed call so the vector never encodes the raw secret either.
+- **Recall:** auto-injected at start of each turn via a `<recalled_memories>` block in the system prompt (top-5 cosine ≥ 0.6 against the current user message). Empty list still emits `<recalled_memories/>` so the model learns the contract. Recall errors fail-open (memory is augmentation, not correctness).
+- **Recall audit row:** best-effort — if the `INSERT INTO audit_log` fails, the recall result is still returned to the caller. Memory writes remain strictly atomic.
+- **`write_memory` tool gating:** explicit-only per PRD U9. Tool description carries both a "USE WHEN" rubric (explicit asks to remember + explicit long-running focus statements) and a "DO NOT USE WHEN" guard (chit-chat, classification, RAG, summarization).
+- **User-id threading to tools:** `current_user_id` and `current_conversation_id` ContextVars in `app/domain/tools.py`, set by `ChatbotService.run_turn` before tool dispatch. Less invasive than a tool-factory refactor and keeps `TOOL_DISPATCH` as a plain function table.
+
+## Auth (slice 10)
+- **fastapi-users** with JWT, signing key resolved from Vault `shared/jwt.signing_key` at boot (NOT `.env`). Two roles: `user`, `admin` (CHECK constraint on `users.role`).
+- **SQLAlchemy + asyncpg side-by-side:** the `users` table is owned by SQLAlchemy because fastapi-users requires it; every other table (memory, audit, chunks) uses raw asyncpg. Mixed ORMs in one process is acceptable for a single-table footprint; rewriting all repos as SQLAlchemy is out of scope.
+- **JWT validator** accepts `sub=<uuid>` (real user) and `sub=widget_session:<uuid>` (slice-13 anon widget). `current_principal` dep returns a `User` or `AnonWidgetSession`. `current_user` (fastapi-users default) is used for admin-only endpoints where widget sessions never apply.
+- **Anonymous widget users:** `write_memory` returns `{ok:false, error:"requires_authed_user"}` for `widget_session:*` principals. Real widget-keyed memory wiring lands with slice 13.
+- **Revocation:** `POST /auth/jwt/revoke` sets `session:revoked:{jti}` in Redis with TTL = remaining JWT lifetime. fastapi-users' default JWT strategy doesn't mint a `jti`, so the endpoint no-ops for user tokens until slice 13's anon widget tokens (which do mint jti) come online. Redis outage on revoke is logged but doesn't fail the request.
+
 ## Observability
 - Tracing: Langfuse v2 self-host. Session = conversation. Generation/tool/retrieval span types.
-- Redaction: vendor-prefixed token regexes + email + URL creds + user paths. 3-boundary hookup.
+- Redaction: vendor-prefixed token regexes + email + URL creds + user paths. 3-boundary hookup at structlog processor, Langfuse `mask` callback, MemoryService.write summary path. Full pattern table in SECURITY.md.
 
 ## Widget
 - Stack: Preact + preact/compat + Tailwind + marked + fetch-event-source.

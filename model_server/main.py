@@ -31,7 +31,7 @@ _reranker: Reranker | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _classifier, _ner, _embedder
+    global _classifier, _ner, _embedder, _reranker
     if os.environ.get("MC_SKIP_CLASSIFIER_LOAD") == "1":
         log.warning("MC_SKIP_CLASSIFIER_LOAD=1 — serving with classifier_loaded=false")
     else:

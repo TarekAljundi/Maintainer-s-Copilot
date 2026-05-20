@@ -4,19 +4,25 @@
 User-pasted text may contain secrets (API keys, JWTs, URL creds, emails). Without redaction these would land in 4 surfaces: structured logs, Langfuse trace spans, episodic memory summaries, audit-log metadata.
 
 ## Redaction patterns (defensible list)
-- OpenAI key: `\bsk-[A-Za-z0-9]{32,}\b`
-- Anthropic key: `\bsk-ant-[A-Za-z0-9_-]{90,}\b`
-- Groq key: `\bgsk_[A-Za-z0-9]{50,}\b`
-- GitHub token: `\bgh[pousr]_[A-Za-z0-9]{36,}\b`
-- AWS access key: `\bAKIA[0-9A-Z]{16}\b`
-- Google API: `\bAIza[0-9A-Za-z\-_]{35}\b`
-- Slack: `\bxox[bpa]-[A-Za-z0-9-]{20,}\b`
-- JWT shape: `\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`
-- URL creds: `://([^:\s/]+):([^@\s]+)@`
-- Password key-value: `(?i)\b(password|passwd|pwd)["\']?\s*[:=]\s*["\']?([^\s"\']+)`
-- Email: `\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`
-- Windows user path: `[Cc]:\\Users\\[^\\]+\\`
-- Unix user path: `/Users/[^/]+/`, `/home/[^/]+/`
+
+Authoritative source: `app/infra/redaction.py` (`PATTERNS`). Order is significant — URL credentials run first so the whole `scheme://user:pass@host` is replaced as one token before the inner password/email matchers fire.
+
+Categories and replacement labels (`[REDACTED:<category>]`):
+
+| Category | Regex | Notes |
+|---|---|---|
+| `url_credentials` | `\b[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s/@:]+:[^\s/@]+@[^\s]+` | runs FIRST |
+| `anthropic_key` | `\bsk-ant-[A-Za-z0-9_\-]{20,}\b` | before openai_key |
+| `openai_key` | `\bsk-(?!ant-)[A-Za-z0-9_\-]{20,}\b` | negative lookahead avoids double-match |
+| `groq_key` | `\bgsk_[A-Za-z0-9]{20,}\b` | |
+| `github_token` | `\bgh[pousr]_[A-Za-z0-9]{20,}\b` | ghp/gho/ghu/ghs/ghr |
+| `aws_access_key` | `\bAKIA[0-9A-Z]{16}\b` | |
+| `google_api_key` | `\bAIza[0-9A-Za-z_\-]{35}\b` | |
+| `slack_token` | `\bxox[bpa]-[A-Za-z0-9\-]{10,}\b` | |
+| `jwt` | `\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b` | three base64url segments |
+| `password_kv` | `(?i)\b(password|passwd|pwd)\s*[=:]\s*[^\s,;&]+` | |
+| `email` | `\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b` | |
+| `user_path` | `(?:[Cc]:\\Users\\|/Users/|/home/)[^\s\\/:*?"<>|]+` | Windows + macOS + Linux |
 
 ## NOT redacted (with rationale)
 - IP addresses — issues legitimately discuss them, FP cost too high.

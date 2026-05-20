@@ -7,15 +7,20 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.admin import router as admin_router
+from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
+from app.api.memory import router as memory_router
 from app.domain.exceptions import ClassifierUnavailable, VaultError
 from app.infra._classifier_registry import WEIGHTS_SHA256
+from app.infra.logging import configure as configure_logging
 from app.infra.model_server_client import ModelServerClient
 from app.infra.vault import REQUIRED_PATHS, get_vault
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging()
     vault = get_vault()
 
     # Boot check #1: Vault reachable (unsealed).
@@ -59,6 +64,9 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Maintainer's Copilot API", lifespan=lifespan)
     app.include_router(chat_router, prefix="/api")
+    app.include_router(memory_router, prefix="/api")
+    app.include_router(auth_router)
+    app.include_router(admin_router, prefix="/api")
     return app
 
 

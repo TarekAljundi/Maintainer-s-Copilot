@@ -22,6 +22,7 @@ api = [
     "redis[hiredis]",
     "minio",
     "groq",
+    "openai>=1",
     "langfuse>=2,<3",
     "pgvector",
     "rank-bm25",
