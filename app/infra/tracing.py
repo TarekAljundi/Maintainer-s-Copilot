@@ -42,9 +42,16 @@ def _set_test_recorder(recorder: Callable[[str, str | None], Any] | None) -> Non
     _test_recorder = recorder
 
 
-def mask(obj: Any) -> Any:
-    """Boundary 2 — Langfuse `mask` callback. Identity-shaped, redaction-applied."""
-    return redact_obj(obj)
+def mask(data: Any = None, **_: Any) -> Any:
+    """Boundary 2 — Langfuse `mask` callback. Identity-shaped, redaction-applied.
+
+    Langfuse v2's ingestion consumer calls this as `mask(data=<value>)` — the
+    keyword name `data` is part of the contract; if the signature doesn't accept
+    it Langfuse swallows the TypeError and replaces the payload with the literal
+    string `<fully masked due to failed mask function>`. Accept positional + extra
+    kwargs too so direct callers (tests, in-process code) keep working.
+    """
+    return redact_obj(data)
 
 
 def _is_disabled_env() -> bool:
