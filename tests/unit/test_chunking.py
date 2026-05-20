@@ -28,14 +28,7 @@ def _stub_tokenizer(monkeypatch):
 
 
 def test_parse_rst_sections_recognises_h1_h2():
-    text = (
-        "Top\n"
-        "===\n"
-        "preamble line\n\n"
-        "Sub\n"
-        "---\n"
-        "child body line\n"
-    )
+    text = "Top\n===\npreamble line\n\nSub\n---\nchild body line\n"
     sections = chunking.parse_rst_sections(text)
     assert sections[0] == (0, "", "")
     assert sections[1] == (1, "Top", "preamble line")

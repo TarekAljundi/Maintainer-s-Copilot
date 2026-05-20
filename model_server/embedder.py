@@ -28,12 +28,8 @@ class Embedder:
         from sentence_transformers import SentenceTransformer
 
         self._device = device or os.environ.get("MC_EMBEDDER_DEVICE", "cpu")
-        cache_dir = os.environ.get(
-            "MC_MODEL_CACHE", str(Path.home() / ".cache" / "mc-models")
-        )
-        self._model = SentenceTransformer(
-            MODEL_NAME, device=self._device, cache_folder=cache_dir
-        )
+        cache_dir = os.environ.get("MC_MODEL_CACHE", str(Path.home() / ".cache" / "mc-models"))
+        self._model = SentenceTransformer(MODEL_NAME, device=self._device, cache_folder=cache_dir)
         self._model.max_seq_length = 512
         logger.info("embedder ready: %s on %s", MODEL_NAME, self._device)
 

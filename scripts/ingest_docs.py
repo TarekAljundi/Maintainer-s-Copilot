@@ -46,9 +46,7 @@ def clone(sha: str | None) -> str:
     else:
         CLONE_DIR.parent.mkdir(parents=True, exist_ok=True)
         depth_args = ["--depth", "1"] if sha is None else []
-        subprocess.run(
-            ["git", "clone", *depth_args, REPO_URL, str(CLONE_DIR)], check=True
-        )
+        subprocess.run(["git", "clone", *depth_args, REPO_URL, str(CLONE_DIR)], check=True)
     if sha is not None:
         subprocess.run(
             ["git", "-C", str(CLONE_DIR), "fetch", "--depth", "1", "origin", sha],

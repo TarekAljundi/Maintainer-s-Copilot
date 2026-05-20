@@ -66,9 +66,7 @@ async def main() -> int:
         for c, v in zip(batch, vecs):
             c.embedding = v
         if (i // args.batch) % 10 == 0:
-            log.info(
-                "embedded %d/%d (%.1fs)", i + len(batch), len(all_chunks), time.time() - t0
-            )
+            log.info("embedded %d/%d (%.1fs)", i + len(batch), len(all_chunks), time.time() - t0)
     log.info("embedding done in %.1fs", time.time() - t0)
 
     inserted = await chunks_repo.insert_many(all_chunks)

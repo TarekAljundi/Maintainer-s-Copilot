@@ -40,9 +40,7 @@ def _tokenizer():
 
     from transformers import AutoTokenizer
 
-    cache_dir = os.environ.get(
-        "MC_MODEL_CACHE", str(Path.home() / ".cache" / "mc-models")
-    )
+    cache_dir = os.environ.get("MC_MODEL_CACHE", str(Path.home() / ".cache" / "mc-models"))
     return AutoTokenizer.from_pretrained("BAAI/bge-base-en-v1.5", cache_dir=cache_dir)
 
 

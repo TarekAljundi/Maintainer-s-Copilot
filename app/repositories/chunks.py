@@ -55,9 +55,7 @@ async def insert_many(chunks: Iterable[Chunk]) -> int:
     return len(rows)
 
 
-async def dense_search(
-    query_embedding: list[float], top_k: int = 5
-) -> list[RetrievedChunk]:
+async def dense_search(query_embedding: list[float], top_k: int = 5) -> list[RetrievedChunk]:
     qvec = _to_vec(query_embedding)
     async with acquire() as conn:
         rows = await conn.fetch(

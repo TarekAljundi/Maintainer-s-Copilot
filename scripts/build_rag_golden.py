@@ -86,7 +86,7 @@ async def _resolve_auto(d: dict, top_n: int) -> list[str]:
     sql = f"""
         SELECT id, ts_rank_cd(tsv, plainto_tsquery('english', ${qpos})) AS score
         FROM chunks
-        WHERE {' AND '.join(where_parts)}
+        WHERE {" AND ".join(where_parts)}
         ORDER BY score DESC, chunk_seq ASC
         LIMIT ${lim_pos}
     """
