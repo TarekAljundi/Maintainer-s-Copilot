@@ -171,6 +171,19 @@ def test_check_classifier_weights_sha_empty_pin_passes(monkeypatch):
     checks.check_classifier_weights_sha()  # no raise even without a model-server
 
 
+def test_check_classifier_weights_sha_env_bypass(monkeypatch):
+    # Tied to check #4's bypass: classifier didn't load, so weights_sha is
+    # empty by definition. Bypass must short-circuit BEFORE the network call.
+    monkeypatch.setattr("app.boot.checks.WEIGHTS_SHA256", "non-empty-pin")
+
+    def _should_not_be_called(self):
+        raise AssertionError("network call should be skipped under bypass")
+
+    monkeypatch.setattr("app.boot.checks.ModelServerClient.health", _should_not_be_called)
+    monkeypatch.setenv("MC_BOOT_SKIP_CLASSIFIER", "1")
+    checks.check_classifier_weights_sha()  # no raise
+
+
 # ---- 6: Langfuse auth ----------------------------------------------------
 
 

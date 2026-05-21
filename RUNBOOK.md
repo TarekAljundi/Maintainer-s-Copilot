@@ -59,8 +59,11 @@ for on every PR. CI therefore runs in **classical-only** mode:
   download; `/health` reports `classifier_loaded=false`; `/classify` returns
   503. Other model-server endpoints (`/embed`, `/rerank`, `/extract`) still
   serve normally.
-- `MC_BOOT_SKIP_CLASSIFIER=1` (api side): boot check #4 becomes a no-op
-  with a loud WARN log. The other 7 boot checks still run.
+- `MC_BOOT_SKIP_CLASSIFIER=1` (api side): boot checks #4 (classifier
+  loaded) AND #5 (weights SHA pin) become no-ops with a loud WARN log.
+  Splitting them would force CI to also clear `WEIGHTS_SHA256` in the
+  registry, which would mask real pin drift in dev. The other 6 boot
+  checks still run.
 - Classification eval runs `--models classical` only. The classical
   baseline (sklearn TF-IDF + LR) fits itself from the bundled golden set,
   so it works without any MinIO artifacts and still gives a real ML signal

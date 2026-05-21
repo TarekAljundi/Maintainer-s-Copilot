@@ -139,6 +139,13 @@ def check_model_server_loaded() -> None:
 
 
 def check_classifier_weights_sha() -> None:
+    # Tied to check #4's bypass: if the classifier didn't load, model-server
+    # reports an empty weights_sha and there is nothing to compare against.
+    # Splitting the two would force CI to also clear WEIGHTS_SHA256 in the
+    # registry, which would mask a real pin drift in dev.
+    if os.environ.get("MC_BOOT_SKIP_CLASSIFIER") == "1":
+        _log.warning("MC_BOOT_SKIP_CLASSIFIER=1 — boot check #5 bypassed")
+        return
     if not WEIGHTS_SHA256:
         # Treat empty pin as "unpinned" — explicit dev escape hatch documented
         # in app/infra/_classifier_registry.py. CI must reject this on main.
