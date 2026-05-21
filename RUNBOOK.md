@@ -17,7 +17,28 @@ Order of bring-up:
 6. `chatbot`, `widget`, `host`, `host-blocked` come up.
 
 ## Vault paths
-See ARCH.md / PRD Q30.
+
+Layout per PRD Q30. Authoritative source: `scripts/vault_seed.sh`. All under
+`secret/` (KV v2). Required paths are validated at boot by check #2; missing
+or empty paths refuse the api.
+
+| Path | Keys | Consumed by |
+|---|---|---|
+| `secret/shared/jwt`        | `signing_key`                                              | `app/api/auth.py` JWTStrategy |
+| `secret/api/llm`           | `groq_api_key`, `openrouter_api_key`                       | `app/infra/llm_groq.py`, `app/services/hyde.py`, `app/services/summarizer.py` |
+| `secret/api/tracing`       | `langfuse_public_key`, `langfuse_secret_key`, `langfuse_host` | `app/infra/tracing.py` (init + mask) |
+| `secret/api/db`            | `url` (`postgresql+asyncpg://…`)                           | `app/infra/db.py` pool factory |
+| `secret/api/redis`         | `url` (`redis://…`)                                        | `app/infra/redis.py` client factory |
+| `secret/api/blob`          | `endpoint`, `access_key`, `secret_key`, `bucket`           | `app/infra/minio.py` (`mc-evals` default) |
+| `secret/streamlit/api`     | `api_base` (e.g. `http://api:8000`)                        | streamlit chatbot bootstrap |
+
+**Dev mode**: `vault-init` container seeds all paths from env vars on
+`docker compose up`. Placeholder keys are fine — the LLM/Langfuse code
+silently degrades when a key is `placeholder` (tracing-disabled, LLM
+provider falls back per `LLM_PROVIDER`).
+
+**Prod swap**: replace `vault-init` with your real Vault cluster's bootstrap
++ point `VAULT_ADDR` at it. No code change required.
 
 ## Vault outage during runtime
 - Cached secrets keep serving.

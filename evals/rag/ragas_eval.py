@@ -29,7 +29,22 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("ragas_eval")
 
 GOLDEN_PATH = Path("evals/rag/golden.jsonl")
-MODEL = "llama-3.3-70b-versatile"
+
+# Provider config — mirrors app/infra/llm_groq.py but resolves the API key
+# from env so we don't need Vault reachable from the host. Switch with
+# LLM_PROVIDER=groq|openrouter; default groq. LLM_MODEL overrides the model.
+_PROVIDERS: dict[str, dict[str, str]] = {
+    "groq": {
+        "base_url": "https://api.groq.com/openai/v1",
+        "env_key": "GROQ_API_KEY",
+        "default_model": "llama-3.3-70b-versatile",
+    },
+    "openrouter": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "env_key": "OPENROUTER_API_KEY",
+        "default_model": "nvidia/nemotron-3-super-120b-a12b:free",
+    },
+}
 
 ANSWER_PROMPT = (
     "You are answering a pandas question grounded in the supplied passages. "
@@ -46,11 +61,19 @@ def _format_passages(chunks: list[Any]) -> str:
     return "\n\n".join(out)
 
 
-def _groq_key() -> str:
-    k = os.environ.get("GROQ_API_KEY") or ""
-    if not k:
-        raise RuntimeError("GROQ_API_KEY env required for RAGAS eval")
-    return k
+def _provider_config() -> tuple[str, str, str, str]:
+    """Returns (name, base_url, api_key, model)."""
+    name = (os.environ.get("LLM_PROVIDER") or "groq").strip().lower()
+    cfg = _PROVIDERS.get(name)
+    if cfg is None:
+        raise RuntimeError(f"unknown LLM_PROVIDER={name!r}; expected one of {list(_PROVIDERS)}")
+    key = os.environ.get(cfg["env_key"]) or ""
+    if not key or key == "placeholder":
+        raise RuntimeError(
+            f"{cfg['env_key']} env required for RAGAS eval under LLM_PROVIDER={name}"
+        )
+    model = os.environ.get("LLM_MODEL") or cfg["default_model"]
+    return name, cfg["base_url"], key, model
 
 
 class _BGEEmbeddings:
@@ -82,9 +105,21 @@ async def run() -> int:
     parser.add_argument("--golden", default=GOLDEN_PATH, type=Path)
     parser.add_argument("--out", default=Path("reports/ragas.json"), type=Path)
     parser.add_argument("--limit", type=int, default=None, help="cap questions for debug runs")
+    parser.add_argument(
+        "--answers-cache",
+        default=Path("reports/ragas_answers.json"),
+        type=Path,
+        help="Checkpoint file for question/answer/contexts triples; skips answer-gen if present",
+    )
+    parser.add_argument(
+        "--skip-gen",
+        action="store_true",
+        help="Skip answer-gen and load from --answers-cache (re-run scoring only)",
+    )
     args = parser.parse_args()
 
-    _groq_key()  # fail fast if missing
+    provider_name, base_url, api_key, model = _provider_config()
+    log.info("provider=%s model=%s", provider_name, model)
 
     if not args.golden.exists():
         log.error("missing golden: %s", args.golden)
@@ -100,44 +135,57 @@ async def run() -> int:
         golden = golden[: args.limit]
     log.info("loaded %d golden records", len(golden))
 
-    # Local model-server replacement so rerank works without the container.
-    from evals.rag.run import _LocalModelServer
-    from app.services.rag import RAGService
-    from groq import Groq
+    if args.skip_gen:
+        if not args.answers_cache.exists():
+            log.error("--skip-gen set but %s missing", args.answers_cache)
+            return 1
+        rows = json.loads(args.answers_cache.read_text(encoding="utf-8"))
+        log.info("loaded %d cached answers from %s", len(rows), args.answers_cache)
+    else:
+        # Local model-server replacement so rerank works without the container.
+        from evals.rag.run import _LocalModelServer
+        from app.services.rag import RAGService
+        from openai import OpenAI
 
-    rag = RAGService(model_server=_LocalModelServer())
-    groq_client = Groq(api_key=_groq_key())
+        rag = RAGService(model_server=_LocalModelServer())
+        llm_client = OpenAI(api_key=api_key, base_url=base_url)
 
-    rows: list[dict] = []
-    for i, g in enumerate(golden, 1):
-        q = g["question"]
-        log.info("[%d/%d] %s", i, len(golden), q[:60])
-        hits = await rag.retrieve(q, top_k=5, stack="full")
-        contexts = [h.text for h in hits]
-        prompt = ANSWER_PROMPT.format(question=q, passages=_format_passages(hits))
-        comp = groq_client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-        )
-        answer = (comp.choices[0].message.content or "").strip()
-        rows.append(
-            {
-                "question": q,
-                "answer": answer,
-                "contexts": contexts,
-                "ground_truth": g.get("ideal_answer", ""),
-            }
-        )
+        rows: list[dict] = []
+        for i, g in enumerate(golden, 1):
+            q = g["question"]
+            log.info("[%d/%d] %s", i, len(golden), q[:60])
+            hits = await rag.retrieve(q, top_k=5, stack="full")
+            contexts = [h.text for h in hits]
+            prompt = ANSWER_PROMPT.format(question=q, passages=_format_passages(hits))
+            comp = llm_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+            )
+            answer = (comp.choices[0].message.content or "").strip()
+            rows.append(
+                {
+                    "question": q,
+                    "answer": answer,
+                    "contexts": contexts,
+                    "ground_truth": g.get("ideal_answer", ""),
+                }
+            )
+        # Checkpoint after answer-gen so scoring can be retried without
+        # re-burning provider quota on the LLM completions.
+        args.answers_cache.parent.mkdir(parents=True, exist_ok=True)
+        args.answers_cache.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        log.info("checkpointed %d answers -> %s", len(rows), args.answers_cache)
 
     # Hand the (question, answer, contexts) triples to RAGAS for scoring.
-    log.info("scoring with RAGAS (Groq judge, temp=0)...")
+    log.info("scoring with RAGAS (%s judge, temp=0)...", provider_name)
     from datasets import Dataset
-    from langchain_groq import ChatGroq
+    from langchain_openai import ChatOpenAI
     from ragas import evaluate
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
     from ragas.metrics import answer_relevancy, faithfulness
+    from ragas.run_config import RunConfig
 
     ds = Dataset.from_list(
         [
@@ -150,13 +198,22 @@ async def run() -> int:
             for r in rows
         ]
     )
-    judge = LangchainLLMWrapper(ChatGroq(model=MODEL, temperature=0.0, api_key=_groq_key()))
+    # ChatOpenAI handles both Groq and OpenRouter (both OpenAI-compatible).
+    judge = LangchainLLMWrapper(
+        ChatOpenAI(model=model, api_key=api_key, base_url=base_url, temperature=0.0)
+    )
     emb = LangchainEmbeddingsWrapper(_BGEEmbeddings())
+    # Free-tier providers (Groq, OpenRouter) get burst-throttled by RAGAS's
+    # default max_workers=16. Drop to 3 to stay under typical RPM caps;
+    # override via RAGAS_MAX_WORKERS env if you have paid quota.
+    max_workers = int(os.environ.get("RAGAS_MAX_WORKERS", "3"))
+    log.info("ragas max_workers=%d", max_workers)
     result = evaluate(
         dataset=ds,
         metrics=[faithfulness, answer_relevancy],
         llm=judge,
         embeddings=emb,
+        run_config=RunConfig(max_workers=max_workers, timeout=180),
     )
     df = result.to_pandas()
 
