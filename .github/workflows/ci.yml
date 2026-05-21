@@ -77,6 +77,11 @@ jobs:
           echo "VAULT_TOKEN=ci-root-token" >> .env
           echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
           echo "OPENROUTER_API_KEY=$OPENROUTER_API_KEY" >> .env
+          # CI has no trained classifier artifacts in MinIO — skip both the
+          # model-server's classifier load and the API's boot check #4.
+          # Classification eval runs `--models classical` only. See RUNBOOK §CI.
+          echo "MC_SKIP_CLASSIFIER_LOAD=1" >> .env
+          echo "MC_BOOT_SKIP_CLASSIFIER=1" >> .env
       - name: compose up
         run: docker compose up -d
       - name: wait for healthy
@@ -95,8 +100,8 @@ jobs:
         run: |
           uv run pytest tests/smoke -q
           uv run pytest tests/integration -m "requires_pg" -q
-      - name: classification eval
-        run: uv run python -m evals.classification.run --out reports/classification.json --models deberta,classical
+      - name: classification eval (classical only; deberta needs trained artifacts)
+        run: uv run python -m evals.classification.run --out reports/classification.json --models classical
       - name: rag retrieval eval
         env:
           POSTGRES_HOST: localhost

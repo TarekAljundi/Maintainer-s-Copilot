@@ -18,6 +18,8 @@ touch the network. None mutate state.
 from __future__ import annotations
 
 import hashlib
+import logging
+import os
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -34,6 +36,8 @@ from app.infra.model_server_client import ModelServerClient
 from app.infra.vault import REQUIRED_PATHS, get_vault
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+_log = logging.getLogger(__name__)
 
 
 # ---- 1: Vault health ------------------------------------------------------
@@ -111,6 +115,16 @@ async def check_db_at_head() -> None:
 
 
 def check_model_server_loaded() -> None:
+    # CI doesn't carry the fine-tuned classifier artifacts (training requires
+    # GPU + minutes). MC_BOOT_SKIP_CLASSIFIER=1 makes this check a no-op so
+    # the rest of the boot path can be exercised; classification eval in CI
+    # then runs `--models classical` only. RUNBOOK §CI documents the carve-out.
+    if os.environ.get("MC_BOOT_SKIP_CLASSIFIER") == "1":
+        _log.warning(
+            "MC_BOOT_SKIP_CLASSIFIER=1 — boot check #4 bypassed; "
+            "classifier predictions will return 503"
+        )
+        return
     try:
         h = ModelServerClient().health()
     except ClassifierUnavailable:

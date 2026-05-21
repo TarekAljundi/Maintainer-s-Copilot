@@ -48,6 +48,36 @@ as `secrets.GROQ_API_KEY` to enable them.
 
 **Dual-gate semantics** (`evals.gate`): a metric passes iff `current >= floor AND current >= baseline - regression_margin`. Floors + margins live in `eval_thresholds.yaml`. The bootstrap run (no baseline) passes the regression check by definition.
 
+### Classifier carve-out in CI
+The fine-tuned DeBERTa classifier requires GPU + training time we don't pay
+for on every PR. CI therefore runs in **classical-only** mode:
+
+- `minio-init` service creates `mc-models` + `mc-evals` buckets so neither
+  side hits `NoSuchBucket`. `mc-models` stays empty in CI; in dev it gets
+  populated by `scripts/train_classifier.py`.
+- `MC_SKIP_CLASSIFIER_LOAD=1` (model-server side): skips the artifact
+  download; `/health` reports `classifier_loaded=false`; `/classify` returns
+  503. Other model-server endpoints (`/embed`, `/rerank`, `/extract`) still
+  serve normally.
+- `MC_BOOT_SKIP_CLASSIFIER=1` (api side): boot check #4 becomes a no-op
+  with a loud WARN log. The other 7 boot checks still run.
+- Classification eval runs `--models classical` only. The classical
+  baseline (sklearn TF-IDF + LR) fits itself from the bundled golden set,
+  so it works without any MinIO artifacts and still gives a real ML signal
+  against the per-class F1 floors.
+
+**What CI does NOT verify**: the deberta classification dual-gate, the
+classifier weights SHA pin (check #5 silently passes when `WEIGHTS_SHA256`
+is empty), the LLM classification baseline. All three are exercised
+locally + in the Friday demo against real trained artifacts.
+
+To run the full pipeline locally:
+```
+scripts/train_classifier.py            # uploads to s3://mc-models/classifier/v1/
+docker compose up -d                   # MC_*_SKIP_* stay empty in your .env
+pytest tests/smoke tests/integration -q
+```
+
 ## Add a tool live (user story 45)
 PRD §User stories — *"as a maintainer I can add a new tool to the chatbot in
 under 5 minutes without touching the API routers or repositories."* The minimal
