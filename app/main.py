@@ -36,6 +36,11 @@ def create_app() -> FastAPI:
     app.add_middleware(DynamicCORSMiddleware)
     app.add_middleware(RequestIDMiddleware)
     error_handlers.register(app)
+
+    @app.get("/api/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     app.include_router(chat_router, prefix="/api")
     app.include_router(memory_router, prefix="/api")
     app.include_router(auth_router)

@@ -135,3 +135,14 @@ Full 25-Q RAGAS generation eval pending Groq TPD reset — see EVALS.md §"Gener
 - Stack: Preact + preact/compat + Tailwind + marked + fetch-event-source.
 - Bundle target: ~35 KB gzipped. Actual = TBD.
 - Embed: loader.js -> iframe -> /widget/{id}/embed w/ CSP frame-ancestors from DB.
+
+## CI (slice 15)
+- **4-stage GitHub Actions** pipeline (`.github/workflows/ci.yml`): lint+unit+redaction parallel → build matrix (api, model_server, streamlit, widget, migrate) → `docker compose up` smoke + classification + RAG eval + dual-gate compare + MinIO upload → promote-baseline on main only. The boot validator (slice 14) runs at lifespan, so a green smoke means all 8 checks passed in a real container.
+- **Eval baseline** at `s3://mc-evals/main/latest.json` is the source of truth for the regression diff. `evals.compare --bootstrap` PASSES when no baseline exists so the first green main build seeds it via `evals.promote`. CI uses the ephemeral in-compose MinIO; prod swap is a Vault edit at `api/blob`, not a code change.
+- **Dual-gate** (`evals.gate`): `current >= floor AND current >= baseline - regression_margin`. Floors + margins per metric in `eval_thresholds.yaml`; boot check #7 (slice 14) already enforces 0<x<1 at startup.
+- **Rate-limit posture for CI RAG eval**: `evals.rag.run` honors `RAG_EVAL_RPM_BUDGET` (env / CLI). CI sets `25` to stay under Groq's 30 RPM free tier; sleeps `60/budget` between requests. No paid-tier dependency.
+- **Layer-boundary AST tests** (`tests/test_layers.py`): walks `ast.Import` + `ast.ImportFrom` per layer. Routers + services may not import raw `sqlalchemy`/`redis` (services also forbidden from top-level `httpx`); repos may not import `fastapi`. `CARVEOUT_ALLOW` maps file → allowed packages — currently `app/api/auth.py` (fastapi-users + sqlalchemy) and `app/repositories/users.py` (fastapi + fastapi-users + sqlalchemy). Adding a new exception is a one-line PR.
+- **PG-gated tests**: `requires_pg` pytest marker on the 10 integration tests that hit Postgres. Unit stage skips them (`-m "not requires_pg"`); smoke stage runs them after `docker compose up`.
+- **RAG eval in CI**: retrieval-only (`--stack hybrid_rerank`). RAGAS gen eval (faithfulness + answer-relevancy) is left to a separate workflow_dispatch run to avoid Groq TPD on every PR. The dual-gate carries `rag.faithfulness` / `rag.answer_relevancy` through transparently when present.
+- **GROQ_API_KEY in CI**: optional. Defaults to `placeholder`; the `llm` classification baseline + `--stack full` HyDE are skipped when absent. Set `secrets.GROQ_API_KEY` on the repo to enable.
+- **User story 45** (add-a-tool-live): not a CI gate; RUNBOOK §"Add a tool live" + a 1-minute screencap in the Friday deck.

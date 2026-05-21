@@ -1,7 +1,19 @@
 name: ci
 on: [push, pull_request]
 
+# Eval baseline lives in MinIO at s3://mc-evals/main/latest.json (seeded by
+# the first green main run via evals.promote). PR runs diff against it; main
+# runs promote on top of it. See PRD.md §Evaluation §CI pipeline.
+
+env:
+  # CI hits the in-compose MinIO; production deploys point MC_BLOB_FROM_HOST
+  # at a real S3 via a Vault edit.
+  MC_BLOB_FROM_HOST: "1"
+  PYTHONUNBUFFERED: "1"
+
 jobs:
+  # ---- Stage 1: lint + types + unit + redaction (parallel) ---------------
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -11,6 +23,8 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pyright app/ model_server/
+      - name: prompt SHA pins are up to date
+        run: uv run python scripts/bump_prompt_shas.py --check
 
   unit:
     runs-on: ubuntu-latest
@@ -18,20 +32,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
       - run: uv sync --extra api --extra evals --extra dev
-      - run: uv run pytest tests/unit -q
+      - name: unit + layer-boundary
+        run: uv run pytest tests/unit tests/test_layers.py -q
 
-  # TODO slice 08: wire tests/unit/test_redaction.py
-  # redaction:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: astral-sh/setup-uv@v3
-  #     - run: uv sync --extra api --extra dev
-  #     - run: uv run pytest tests/unit/test_redaction.py -v
+  redaction:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra api --extra dev
+      - name: redaction boundaries
+        run: uv run pytest tests/integration/test_redaction_boundaries.py -v
+
+  # ---- Stage 2: build images (matrix) -------------------------------------
 
   build:
     runs-on: ubuntu-latest
-    needs: [lint, unit]
+    needs: [lint, unit, redaction]
     strategy:
       matrix:
         service: [api, model_server, streamlit, widget, migrate]
@@ -40,34 +57,86 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - run: docker buildx build -f docker/${{ matrix.service }}.Dockerfile -t mc-${{ matrix.service }} . --load
 
-  # TODO slice 15: enable smoke + evals + promote-baseline jobs once
-  # evals.classification / evals.rag / evals.compare / evals.gate / evals.promote
-  # modules exist and tests/smoke is populated.
-  # smoke_and_evals:
-  #   runs-on: ubuntu-latest
-  #   needs: build
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - run: cp .env.example .env && echo "VAULT_TOKEN=ci-token" >> .env
-  #     - run: docker compose up -d
-  #     - run: ./scripts/wait_healthy.sh
-  #     - run: curl -fsS http://localhost:8000/health
-  #     - uses: astral-sh/setup-uv@v3
-  #     - run: uv sync --extra api --extra evals --extra dev
-  #     - run: uv run pytest tests/smoke -q
-  #     - run: uv run python -m evals.classification.run --out reports/classification.json
-  #     - run: uv run python -m evals.rag.run --out reports/rag.json
-  #     - run: uv run python -m evals.compare --current reports/ --thresholds eval_thresholds.yaml --out reports/eval_report.json
-  #     - run: uv run python -m evals.upload --file reports/eval_report.json --sha ${{ github.sha }}
-  #     - run: uv run python -m evals.gate reports/eval_report.json
-  #     - uses: actions/upload-artifact@v4
-  #       with: { name: eval_report, path: reports/ }
+  # ---- Stage 3: compose-up smoke + classification + RAG + compare ---------
 
-  # promote_baseline:
-  #   needs: smoke_and_evals
-  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: astral-sh/setup-uv@v3
-  #     - run: uv run python -m evals.promote --sha ${{ github.sha }}
+  smoke_and_evals:
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      # CI uses the placeholder by default — LLM-dependent eval models (`llm`
+      # classification baseline, HyDE in `--stack full`) are skipped if no
+      # real GROQ_API_KEY is configured as a repo secret.
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY || 'placeholder' }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || 'placeholder' }}
+      RAG_EVAL_RPM_BUDGET: "25"
+    steps:
+      - uses: actions/checkout@v4
+      - name: seed .env for compose
+        run: |
+          cp .env.example .env
+          echo "VAULT_TOKEN=ci-root-token" >> .env
+          echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
+          echo "OPENROUTER_API_KEY=$OPENROUTER_API_KEY" >> .env
+      - name: compose up
+        run: docker compose up -d
+      - name: wait for healthy
+        run: ./scripts/wait_healthy.sh
+      - name: smoke
+        run: |
+          curl -fsS http://localhost:8000/api/health
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra api --extra evals --extra dev
+      - name: pytest smoke + PG-gated integration
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: copilot
+          POSTGRES_DB: copilot
+        run: |
+          uv run pytest tests/smoke -q
+          uv run pytest tests/integration -m "requires_pg" -q
+      - name: classification eval
+        run: uv run python -m evals.classification.run --out reports/classification.json --models deberta,classical
+      - name: rag retrieval eval
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: copilot
+          POSTGRES_DB: copilot
+        run: uv run python -m evals.rag.run --stack hybrid_rerank --out reports/rag_full.json
+      - name: compare to baseline (dual-gate)
+        run: uv run python -m evals.compare --classification reports/classification.json --rag reports/rag_full.json --thresholds eval_thresholds.yaml --out reports/eval_report.json --bootstrap
+      - name: upload eval_report to MinIO
+        run: uv run python -m evals.upload --file reports/eval_report.json --sha ${{ github.sha }}
+      - name: gate
+        run: uv run python -m evals.gate reports/eval_report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-reports
+          path: reports/
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
+  # ---- Stage 4: promote baseline (main only) ------------------------------
+
+  promote_baseline:
+    needs: smoke_and_evals
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra api --extra evals --extra dev
+      # The promote job re-uses the MinIO that smoke_and_evals just uploaded
+      # to. In a real prod deploy this would point at the production S3 via
+      # a Vault edit (no code change); see PRD.md §Evaluation.
+      - name: compose up (vault + minio only)
+        run: |
+          cp .env.example .env
+          echo "VAULT_TOKEN=ci-root-token" >> .env
+          docker compose up -d vault vault-init minio
+          ./scripts/wait_healthy.sh
+      - name: promote baseline
+        run: uv run python -m evals.promote --sha ${{ github.sha }}

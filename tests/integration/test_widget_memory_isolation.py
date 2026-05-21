@@ -14,7 +14,7 @@ import pytest
 import pytest_asyncio
 
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.requires_pg]
 
 
 def _vec(seed: float) -> list[float]:

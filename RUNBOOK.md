@@ -31,7 +31,47 @@ uv run python -m evals.promote --sha <main-commit-sha>
 ```
 
 ## Groq rate-limit notes
-Free tier ~30 req/min on some models. CI eval throttles via `asyncio.Semaphore(5)`.
+Free tier ≈ 30 RPM on llama-3.3-70b. The RAG eval honors `RAG_EVAL_RPM_BUDGET`
+(0 = unlimited; CI sets `25`) and sleeps `60/budget` seconds between requests.
+The CI `smoke_and_evals` job runs with the `placeholder` GROQ key by default —
+LLM-dependent eval models (`llm` classification baseline, HyDE in `--stack full`)
+are skipped if no real key is configured as a GitHub repo secret. Add a real key
+as `secrets.GROQ_API_KEY` to enable them.
+
+## CI / GitHub Actions
+4 stages — see `.github/workflows/ci.yml`:
+
+1. **lint** (ruff + format-check + pyright + `bump_prompt_shas.py --check`), **unit** (`tests/unit` + `tests/test_layers.py`), **redaction** (`tests/integration/test_redaction_boundaries.py`) — all parallel.
+2. **build** (matrix: api, model_server, streamlit, widget, migrate).
+3. **smoke_and_evals**: `docker compose up`, `wait_healthy.sh`, hit `/api/health`, run `tests/smoke` + `pytest -m requires_pg` (the 10 PG-gated integration tests), classification + RAG retrieval evals, `evals.compare` against `s3://mc-evals/main/latest.json` (with `--bootstrap` for the first-ever run), upload the report to `s3://mc-evals/runs/<sha>.json`, gate.
+4. **promote_baseline** (main only): `evals.promote --sha <sha>` copies the run to `main/latest.json` + `main/sha=<sha>.json`.
+
+**Dual-gate semantics** (`evals.gate`): a metric passes iff `current >= floor AND current >= baseline - regression_margin`. Floors + margins live in `eval_thresholds.yaml`. The bootstrap run (no baseline) passes the regression check by definition.
+
+## Add a tool live (user story 45)
+PRD §User stories — *"as a maintainer I can add a new tool to the chatbot in
+under 5 minutes without touching the API routers or repositories."* The minimal
+diff:
+
+1. New file `app/services/<your_tool>.py` — the business logic, one function or
+   one small class with a narrow interface.
+2. New file `app/chatbot/tools/<your_tool>.py` — a thin LLM-facing wrapper:
+   ```python
+   from app.chatbot.tools._base import register
+   from app.services.your_tool import do_thing
+
+   @register(name="your_tool", description="<one-line for the LLM>")
+   async def your_tool(arg: str) -> dict:
+       return {"result": do_thing(arg)}
+   ```
+3. (Nothing else.) The agent loop picks the tool up at import time; no router
+   change, no repository change, no migration.
+
+The layer-boundary test (`tests/test_layers.py`) guards step 1 — services may
+not directly import `sqlalchemy`/`redis`/raw `httpx`; talk to infra through the
+`app.infra.*` ports.
+
+A 1-minute screencast of this flow lives in the Friday demo deck as fallback.
 
 ## Langfuse first-run (boot check #6 bootstrap)
 

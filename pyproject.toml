@@ -66,3 +66,6 @@ typeCheckingMode = "basic"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "requires_pg: integration test that needs a reachable Postgres (skipped in unit-stage CI)",
+]
