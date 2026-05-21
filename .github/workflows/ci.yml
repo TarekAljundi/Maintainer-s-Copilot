@@ -1,13 +1,22 @@
 name: ci
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 
-# Eval baseline lives in MinIO at s3://mc-evals/main/latest.json (seeded by
-# the first green main run via evals.promote). PR runs diff against it; main
-# runs promote on top of it. See PRD.md §Evaluation §CI pipeline.
+# CI scope:
+#   - PR + push: lint, unit+layers, redaction, build, smoke (compose up,
+#     /api/health, PG-gated integration). No evals — CI has no trained
+#     classifier artifacts and no ingested chunks, so classification/RAG
+#     metrics would be artificial. See DECISIONS.md §CI eval scope.
+#   - main + workflow_dispatch: also runs evals + compare + upload + gate.
+#     main also promotes the run to s3://mc-evals/main/latest.json.
+# To run evals locally with real data:
+#     scripts/pull_dataset.py && scripts/ingest_docs.py && scripts/ingest_issues_rag.py
+#     uv run python -m evals.classification.run --models classical,deberta
+#     uv run python -m evals.rag.run --stack hybrid_rerank
 
 env:
-  # CI hits the in-compose MinIO; production deploys point MC_BLOB_FROM_HOST
-  # at a real S3 via a Vault edit.
   MC_BLOB_FROM_HOST: "1"
   PYTHONUNBUFFERED: "1"
 
@@ -57,38 +66,31 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - run: docker buildx build -f docker/${{ matrix.service }}.Dockerfile -t mc-${{ matrix.service }} . --load
 
-  # ---- Stage 3: compose-up smoke + classification + RAG + compare ---------
+  # ---- Stage 3: smoke (always) --------------------------------------------
+  #
+  # Brings up the full stack from .env.example + a Vault root token, hits
+  # /api/health, runs PG-gated integration tests. Doesn't run evals — those
+  # need data CI doesn't carry.
 
-  smoke_and_evals:
+  smoke:
     runs-on: ubuntu-latest
     needs: build
-    env:
-      # CI uses the placeholder by default — LLM-dependent eval models (`llm`
-      # classification baseline, HyDE in `--stack full`) are skipped if no
-      # real GROQ_API_KEY is configured as a repo secret.
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY || 'placeholder' }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || 'placeholder' }}
-      RAG_EVAL_RPM_BUDGET: "25"
     steps:
       - uses: actions/checkout@v4
       - name: seed .env for compose
         run: |
           cp .env.example .env
           echo "VAULT_TOKEN=ci-root-token" >> .env
-          echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
-          echo "OPENROUTER_API_KEY=$OPENROUTER_API_KEY" >> .env
           # CI has no trained classifier artifacts in MinIO — skip both the
-          # model-server's classifier load and the API's boot check #4.
-          # Classification eval runs `--models classical` only. See RUNBOOK §CI.
+          # model-server's classifier load and the API's boot checks #4/#5.
           echo "MC_SKIP_CLASSIFIER_LOAD=1" >> .env
           echo "MC_BOOT_SKIP_CLASSIFIER=1" >> .env
       - name: compose up
         run: docker compose up -d
       - name: wait for healthy
         run: ./scripts/wait_healthy.sh
-      - name: smoke
-        run: |
-          curl -fsS http://localhost:8000/api/health
+      - name: smoke /api/health
+        run: curl -fsS http://localhost:8000/api/health
       - uses: astral-sh/setup-uv@v3
       - run: uv sync --extra api --extra evals --extra dev
       - name: pytest smoke + PG-gated integration
@@ -100,7 +102,46 @@ jobs:
         run: |
           uv run pytest tests/smoke -q
           uv run pytest tests/integration -m "requires_pg" -q
-      - name: classification eval (classical only; deberta needs trained artifacts)
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
+  # ---- Stage 4: evals (main + workflow_dispatch only) --------------------
+  #
+  # Skipped on PRs because CI has no trained classifier artifacts and no
+  # ingested RAG chunks, so the metrics would be meaningless. The first
+  # green main run with real data seeded into MinIO + Postgres is what
+  # establishes s3://mc-evals/main/latest.json. Until that exists, the
+  # `--bootstrap` flag passes the regression check by definition.
+  #
+  # To trigger manually after seeding data, use the workflow_dispatch
+  # button in the Actions tab. See DECISIONS.md §CI eval scope.
+
+  evals:
+    runs-on: ubuntu-latest
+    needs: smoke
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY || 'placeholder' }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || 'placeholder' }}
+      RAG_EVAL_RPM_BUDGET: "25"
+    steps:
+      - uses: actions/checkout@v4
+      - name: seed .env for compose
+        run: |
+          cp .env.example .env
+          echo "VAULT_TOKEN=ci-root-token" >> .env
+          echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
+          echo "OPENROUTER_API_KEY=$OPENROUTER_API_KEY" >> .env
+          echo "MC_SKIP_CLASSIFIER_LOAD=1" >> .env
+          echo "MC_BOOT_SKIP_CLASSIFIER=1" >> .env
+      - name: compose up
+        run: docker compose up -d
+      - name: wait for healthy
+        run: ./scripts/wait_healthy.sh
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra api --extra evals --extra dev
+      - name: classification eval (classical only)
         run: uv run python -m evals.classification.run --out reports/classification.json --models classical
       - name: rag retrieval eval
         env:
@@ -124,24 +165,21 @@ jobs:
         if: failure()
         run: docker compose logs --tail=200
 
-  # ---- Stage 4: promote baseline (main only) ------------------------------
+  # ---- Stage 5: promote baseline (main push only) ------------------------
 
   promote_baseline:
-    needs: smoke_and_evals
+    needs: evals
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
       - run: uv sync --extra api --extra evals --extra dev
-      # The promote job re-uses the MinIO that smoke_and_evals just uploaded
-      # to. In a real prod deploy this would point at the production S3 via
-      # a Vault edit (no code change); see PRD.md §Evaluation.
       - name: compose up (vault + minio only)
         run: |
           cp .env.example .env
           echo "VAULT_TOKEN=ci-root-token" >> .env
-          docker compose up -d vault vault-init minio
+          docker compose up -d vault vault-init minio minio-init
           ./scripts/wait_healthy.sh
       - name: promote baseline
         run: uv run python -m evals.promote --sha ${{ github.sha }}
