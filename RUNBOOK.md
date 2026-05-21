@@ -31,7 +31,101 @@ uv run python -m evals.promote --sha <main-commit-sha>
 ```
 
 ## Groq rate-limit notes
-Free tier ~30 req/min on some models. CI eval throttles via `asyncio.Semaphore(5)`.
+Free tier ≈ 30 RPM on llama-3.3-70b. The RAG eval honors `RAG_EVAL_RPM_BUDGET`
+(0 = unlimited; CI sets `25`) and sleeps `60/budget` seconds between requests.
+The CI `smoke_and_evals` job runs with the `placeholder` GROQ key by default —
+LLM-dependent eval models (`llm` classification baseline, HyDE in `--stack full`)
+are skipped if no real key is configured as a GitHub repo secret. Add a real key
+as `secrets.GROQ_API_KEY` to enable them.
+
+## CI / GitHub Actions
+
+See `.github/workflows/ci.yml`. **PR runs gate structure; main + manual runs gate metrics.**
+
+**PR + every push** (the gate that blocks merge):
+1. **lint** (ruff + format-check + pyright + `bump_prompt_shas.py --check`), **unit** (`tests/unit` + `tests/test_layers.py`), **redaction** (`tests/integration/test_redaction_boundaries.py`) — all parallel.
+2. **build** (matrix: api, model_server, streamlit, widget, migrate).
+3. **smoke**: `docker compose up`, `wait_healthy.sh`, hit `/api/health`, run `tests/smoke` + `pytest -m requires_pg` (the 10 PG-gated integration tests). Verifies the boot validator's other 6 checks pass in a real container, the API answers HTTP, and migrations ran.
+
+**main push + `workflow_dispatch`** (the gate that catches regressions):
+
+4. **evals**: classification + RAG retrieval evals, `evals.compare` against `s3://mc-evals/main/latest.json` (with `--bootstrap` for the first-ever run), upload the report to `s3://mc-evals/runs/<sha>.json`, `evals.gate`.
+5. **promote_baseline** (main push only): `evals.promote --sha <sha>` copies the run to `main/latest.json` + `main/sha=<sha>.json`.
+
+**Dual-gate semantics** (`evals.gate`): a metric passes iff `current >= floor AND current >= baseline - regression_margin`. Floors + margins live in `eval_thresholds.yaml`. The bootstrap run (no baseline) passes the regression check by definition.
+
+### Why PR runs skip the eval stage
+PR CI clones a fresh repo; it carries no `data/splits/` (gitignored) and no
+ingested RAG chunks. The classical classifier baseline fits at runtime from
+`data/splits/{train,val}.jsonl`, and the RAG eval reads chunks from
+Postgres. Both inputs are absent on PRs, so the metrics would either crash
+the step (`FileNotFoundError`) or return zeros that breach every floor.
+Either way, the eval signal would be noise.
+
+Running evals on `main` after merge (and on demand via `workflow_dispatch`)
+keeps the dual-gate honest: it only fires when there's real data to score
+against. A real eval-on-PR setup needs seeded data, which is slice-16 work
+or a follow-up PR — see DECISIONS.md §CI eval scope.
+
+### Classifier carve-out
+The fine-tuned DeBERTa classifier requires GPU + training time we don't pay
+for in CI. Three coupled mitigations let the smoke stage boot the stack:
+
+- `minio-init` service creates `mc-models` + `mc-evals` buckets so neither
+  side hits `NoSuchBucket`. `mc-models` stays empty in CI; in dev it gets
+  populated by `scripts/train_classifier.py`.
+- `MC_SKIP_CLASSIFIER_LOAD=1` (model-server side): skips the artifact
+  download; `/health` reports `classifier_loaded=false`; `/classify` returns
+  503. Other model-server endpoints (`/embed`, `/rerank`, `/extract`) still
+  serve normally.
+- `MC_BOOT_SKIP_CLASSIFIER=1` (api side): boot checks #4 (classifier
+  loaded) AND #5 (weights SHA pin) become no-ops with a loud WARN log.
+  Splitting them would force CI to also clear `WEIGHTS_SHA256` in the
+  registry, which would mask real pin drift in dev. The other 6 boot
+  checks still run.
+
+**What CI does NOT verify on PRs**: anything eval-gated (classification +
+RAG metrics, dual-gate regression detection). **What CI never verifies**:
+the deberta classification dual-gate, the LLM classification baseline, the
+classifier weights SHA pin (check #5 silently passes when `WEIGHTS_SHA256`
+is empty or via `MC_BOOT_SKIP_CLASSIFIER=1`). All of these are exercised
+locally + in the Friday demo against real trained artifacts.
+
+To run the full pipeline locally:
+```
+scripts/pull_dataset.py                # writes data/splits/{train,val,test,rag_holdout}.jsonl
+scripts/train_classifier.py            # uploads to s3://mc-models/classifier/v1/
+scripts/ingest_docs.py && scripts/ingest_issues_rag.py   # populates chunks
+docker compose up -d                   # MC_*_SKIP_* stay empty in your .env
+pytest tests/smoke tests/integration -q
+uv run python -m evals.classification.run --models classical,deberta
+uv run python -m evals.rag.run --stack hybrid_rerank
+```
+
+## Add a tool live (user story 45)
+PRD §User stories — *"as a maintainer I can add a new tool to the chatbot in
+under 5 minutes without touching the API routers or repositories."* The minimal
+diff:
+
+1. New file `app/services/<your_tool>.py` — the business logic, one function or
+   one small class with a narrow interface.
+2. New file `app/chatbot/tools/<your_tool>.py` — a thin LLM-facing wrapper:
+   ```python
+   from app.chatbot.tools._base import register
+   from app.services.your_tool import do_thing
+
+   @register(name="your_tool", description="<one-line for the LLM>")
+   async def your_tool(arg: str) -> dict:
+       return {"result": do_thing(arg)}
+   ```
+3. (Nothing else.) The agent loop picks the tool up at import time; no router
+   change, no repository change, no migration.
+
+The layer-boundary test (`tests/test_layers.py`) guards step 1 — services may
+not directly import `sqlalchemy`/`redis`/raw `httpx`; talk to infra through the
+`app.infra.*` ports.
+
+A 1-minute screencast of this flow lives in the Friday demo deck as fallback.
 
 ## Langfuse first-run (boot check #6 bootstrap)
 

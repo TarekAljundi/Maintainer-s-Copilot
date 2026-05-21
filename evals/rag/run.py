@@ -87,6 +87,12 @@ async def run() -> int:
     parser.add_argument("--out", default=None, type=Path)
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--stack", choices=STACKS, default="full")
+    parser.add_argument(
+        "--rpm-budget",
+        type=int,
+        default=int(__import__("os").environ.get("RAG_EVAL_RPM_BUDGET", "0") or 0),
+        help="Soft RPM cap (0 = unlimited). Set to ~25 for Groq free tier (30 RPM).",
+    )
     args = parser.parse_args()
 
     if not args.golden.exists():
@@ -118,7 +124,18 @@ async def run() -> int:
     rag = RAGService(model_server=_LocalModelServer())
     per_question = []
     t0 = time.time()
+    # Groq free tier ≈ 30 RPM. The `full` stack burns 1 HyDE call per question,
+    # so we sleep `60/rpm_budget` between iterations when a budget is set.
+    inter_request_delay = (60.0 / args.rpm_budget) if args.rpm_budget > 0 else 0.0
+    if inter_request_delay:
+        log.info(
+            "rate limiting: %.1fs between requests (budget=%d RPM)",
+            inter_request_delay,
+            args.rpm_budget,
+        )
     for i, rec in enumerate(golden, 1):
+        if i > 1 and inter_request_delay:
+            await asyncio.sleep(inter_request_delay)
         q = rec["question"]
         gt = set(rec.get("ground_truth_chunk_ids") or [])
         if not gt:

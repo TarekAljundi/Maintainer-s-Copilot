@@ -21,7 +21,7 @@ import pytest_asyncio
 from httpx import ASGITransport
 
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.requires_pg]
 
 
 @pytest_asyncio.fixture

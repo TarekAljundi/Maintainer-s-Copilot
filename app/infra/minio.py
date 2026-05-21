@@ -53,3 +53,26 @@ class MinIOClient:
             self._client.fput_object(b, key, str(path))
         except S3Error as exc:
             raise BlobError(f"put_file s3://{b}/{key} failed: {exc}") from exc
+
+    def get_bytes(self, key: str, bucket: str | None = None) -> bytes | None:
+        b = bucket or self._default_bucket
+        try:
+            resp = self._client.get_object(b, key)
+            try:
+                return resp.read()
+            finally:
+                resp.close()
+                resp.release_conn()
+        except S3Error as exc:
+            if exc.code in ("NoSuchKey", "NoSuchBucket"):
+                return None
+            raise BlobError(f"get_bytes s3://{b}/{key} failed: {exc}") from exc
+
+    def copy_object(self, src_key: str, dst_key: str, bucket: str | None = None) -> None:
+        from minio.commonconfig import CopySource
+
+        b = self.ensure_bucket(bucket)
+        try:
+            self._client.copy_object(b, dst_key, CopySource(b, src_key))
+        except S3Error as exc:
+            raise BlobError(f"copy s3://{b}/{src_key} -> {dst_key} failed: {exc}") from exc

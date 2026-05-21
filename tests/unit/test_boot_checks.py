@@ -141,6 +141,17 @@ def test_check_model_server_loaded_unreachable(monkeypatch):
         checks.check_model_server_loaded()
 
 
+def test_check_model_server_loaded_env_bypass(monkeypatch):
+    # MC_BOOT_SKIP_CLASSIFIER=1 must short-circuit before the network call,
+    # otherwise CI (which has no classifier artifacts) cannot boot the API.
+    def _should_not_be_called(self):
+        raise AssertionError("network call should be skipped under bypass")
+
+    monkeypatch.setattr("app.boot.checks.ModelServerClient.health", _should_not_be_called)
+    monkeypatch.setenv("MC_BOOT_SKIP_CLASSIFIER", "1")
+    checks.check_model_server_loaded()  # no raise
+
+
 # ---- 5: weights SHA mismatch ---------------------------------------------
 
 
@@ -158,6 +169,19 @@ def test_check_classifier_weights_sha_empty_pin_passes(monkeypatch):
     """Unpinned (empty string) — boot allows; CI rejects on main."""
     monkeypatch.setattr("app.boot.checks.WEIGHTS_SHA256", "")
     checks.check_classifier_weights_sha()  # no raise even without a model-server
+
+
+def test_check_classifier_weights_sha_env_bypass(monkeypatch):
+    # Tied to check #4's bypass: classifier didn't load, so weights_sha is
+    # empty by definition. Bypass must short-circuit BEFORE the network call.
+    monkeypatch.setattr("app.boot.checks.WEIGHTS_SHA256", "non-empty-pin")
+
+    def _should_not_be_called(self):
+        raise AssertionError("network call should be skipped under bypass")
+
+    monkeypatch.setattr("app.boot.checks.ModelServerClient.health", _should_not_be_called)
+    monkeypatch.setenv("MC_BOOT_SKIP_CLASSIFIER", "1")
+    checks.check_classifier_weights_sha()  # no raise
 
 
 # ---- 6: Langfuse auth ----------------------------------------------------
