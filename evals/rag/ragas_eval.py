@@ -132,9 +132,7 @@ def _budgeted_http_clients(budget: _RequestBudget) -> tuple[Any, Any]:
         budget.record(response.status_code)
 
     timeout = httpx.Timeout(180.0, connect=15.0)
-    sync = httpx.Client(
-        timeout=timeout, event_hooks={"request": [_req], "response": [_resp]}
-    )
+    sync = httpx.Client(timeout=timeout, event_hooks={"request": [_req], "response": [_resp]})
     asyncc = httpx.AsyncClient(
         timeout=timeout, event_hooks={"request": [_areq], "response": [_aresp]}
     )
@@ -191,8 +189,7 @@ async def run() -> int:
     parser.add_argument(
         "--indices",
         default=None,
-        help="Comma-separated golden indices to score (stratified subset). "
-        "Overrides --limit.",
+        help="Comma-separated golden indices to score (stratified subset). Overrides --limit.",
     )
     args = parser.parse_args()
 
