@@ -177,9 +177,7 @@ async def create_widget(
             status_code=422, detail=f"position must be one of {list(ALLOWED_POSITIONS)}"
         )
     if body.theme not in THEMES:
-        raise HTTPException(
-            status_code=422, detail=f"theme must be one of {list(THEMES)}"
-        )
+        raise HTTPException(status_code=422, detail=f"theme must be one of {list(THEMES)}")
     cfg = await _service().create(
         name=body.name,
         allowed_origins=_normalize_origins(body.allowed_origins),
@@ -235,9 +233,7 @@ async def patch_widget(
             status_code=422, detail=f"position must be one of {list(ALLOWED_POSITIONS)}"
         )
     if "theme" in patch and patch["theme"] not in THEMES:
-        raise HTTPException(
-            status_code=422, detail=f"theme must be one of {list(THEMES)}"
-        )
+        raise HTTPException(status_code=422, detail=f"theme must be one of {list(THEMES)}")
     try:
         cfg = await _service().update(widget_id, **patch)
     except NotFoundError as exc:

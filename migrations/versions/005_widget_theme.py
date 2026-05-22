@@ -29,8 +29,7 @@ _THEME_KEYS = ("midnight", "ocean", "plum", "ember", "rose", "daylight")
 
 def upgrade() -> None:
     op.execute(
-        "ALTER TABLE widget_configs "
-        "ADD COLUMN theme VARCHAR(16) NOT NULL DEFAULT 'midnight'"
+        "ALTER TABLE widget_configs ADD COLUMN theme VARCHAR(16) NOT NULL DEFAULT 'midnight'"
     )
     keys = ", ".join(f"'{k}'" for k in _THEME_KEYS)
     op.execute(

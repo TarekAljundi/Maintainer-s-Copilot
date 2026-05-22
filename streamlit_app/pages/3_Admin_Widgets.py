@@ -83,30 +83,30 @@ def _theme_preview_html(t: dict[str, str]) -> str:
     sees the actual look — header, an assistant + user bubble, an input bar."""
     return (
         f'<div style="background:{t["panel"]};border:1px solid {t["border"]};'
-        'border-radius:10px;overflow:hidden;font-family:Inter,system-ui,sans-serif;'
+        "border-radius:10px;overflow:hidden;font-family:Inter,system-ui,sans-serif;"
         'margin-bottom:6px;">'
         f'<div style="background:{t["surface"]};border-bottom:1px solid {t["border"]};'
         'padding:7px 9px;display:flex;align-items:center;gap:6px;">'
         f'<div style="width:15px;height:15px;border-radius:50%;background:{t["accent"]};">'
-        '</div>'
+        "</div>"
         f'<span style="color:{t["fg"]};font-size:11px;font-weight:600;">{t["label"]}</span>'
-        '</div>'
+        "</div>"
         '<div style="padding:9px;display:flex;flex-direction:column;gap:6px;">'
         f'<div style="align-self:flex-start;background:{t["surface"]};color:{t["fg"]};'
         'font-size:9.5px;padding:5px 8px;border-radius:9px;max-width:80%;">'
-        'Hi! How can I help?</div>'
+        "Hi! How can I help?</div>"
         f'<div style="align-self:flex-end;background:{t["accent"]};color:{t["on_accent"]};'
         'font-size:9.5px;padding:5px 8px;border-radius:9px;max-width:80%;">'
-        'What is a DataFrame?</div>'
-        '</div>'
+        "What is a DataFrame?</div>"
+        "</div>"
         f'<div style="background:{t["surface"]};border-top:1px solid {t["border"]};'
         'padding:7px 9px;display:flex;align-items:center;gap:6px;">'
         f'<div style="flex:1;background:{t["panel"]};border:1px solid {t["border"]};'
         'border-radius:999px;height:15px;"></div>'
         f'<div style="width:18px;height:18px;border-radius:50%;background:{t["accent"]};'
         'flex-shrink:0;"></div>'
-        '</div>'
-        '</div>'
+        "</div>"
+        "</div>"
     )
 
 
