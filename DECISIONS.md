@@ -140,7 +140,7 @@ Full 25-Q RAGAS generation eval did NOT complete — see EVALS.md §"Generation 
 
 ## Widget
 - Stack: Preact + preact/compat + Tailwind + marked + fetch-event-source.
-- Bundle target: ~35 KB gzipped. Actual = TBD.
+- Bundle target: ~35 KB gzipped. Actual (`vite build`, 2026-05-22): `widget-bundle.js` 57.8 KB raw / **19.6 KB gzipped** + `style.css` 5.4 KB raw / 1.8 KB gzipped — ~21 KB gzipped total, comfortably under target.
 - Embed: loader.js -> iframe -> /widget/{id}/embed w/ CSP frame-ancestors from DB.
 
 ## CI (slice 15)
