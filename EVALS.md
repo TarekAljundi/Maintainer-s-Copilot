@@ -61,37 +61,39 @@ an OpenAI-compatible client.
 | Stack | n | faithfulness | answer_relevancy | Source |
 |---|---:|---:|---:|---|
 | full | 3 (smoke) | 0.89 (n=1; 2 NaN) | 0.89 | `reports/ragas_smoke.json` |
-| full | 25 (target) | NOT MEASURED | NOT MEASURED | see status below |
+| full | 5 (subset) | **0.955** (n=4) | **0.846** (n=5) | `reports/ragas.json` |
 
-The 3-question smoke run (slice 07) validated the pipeline end-to-end. The
-full 25-Q run was attempted on 2026-05-21 and **did not complete on either
-free-tier provider**:
+The 3-question smoke run (slice 07) validated the pipeline end-to-end. A full
+25-Q run does not fit a free-tier daily quota: RAGAS spends ~3 judge calls per
+metric per question, so 25 questions need ~75-100 LLM calls — above both the
+Groq 100k-token/day and the OpenRouter 50-request/day free caps.
 
-- **Groq llama-3.3-70b**: 100k TPD cap exhausted (98.5k used) before scoring
-  could finish — answer-gen burned ~30k tokens before failing on Q20.
-- **OpenRouter Nemotron 3 Super (free)**: 50 requests/day cap exhausted by
-  RAGAS's default `max_workers=16` burst at the start of the scoring phase.
-  Patched `ragas_eval.py` to honor `RAGAS_MAX_WORKERS` (set to 3) + added a
-  `--answers-cache` checkpoint so re-runs don't redo answer-gen, but the
-  per-day limit was already gone.
+**Quota-capped subset run (2026-05-22).** `ragas_eval.py` gained a hard
+request-budget guard (`--request-budget`, default 25): a shared httpx hook
+counts only *successful* (HTTP 2xx) judge calls — a 429 is the rate limiter
+rejecting the request before the model runs, so it consumes no quota and is
+not counted — and aborts once the cap is reached. The run scores a stratified
+5-question subset (`--indices 0,4,12,15,18` — 3 docs + 2 issue questions) on
+the full stack:
 
-**How to complete the run after the next UTC reset** (no code change needed):
+- faithfulness **0.955** (n=4; the 5th question's faithfulness job reached
+  the 24th of 25 budgeted calls before it could finish).
+- answer_relevancy **0.846** (n=5, all scored).
+- Judge = Groq llama-3.3-70b, temp=0. Answers were generated once via
+  OpenRouter Nemotron and cached (`reports/ragas_answers.json`); the scoring
+  run re-uses them with `--skip-gen`, so re-scoring spends zero answer-gen
+  quota. Serial scoring (`RAGAS_MAX_WORKERS=1`) avoids the per-minute token
+  bursts that 429-stormed earlier parallel attempts — the final run logged 24
+  successful calls across 43 attempts (the 19 extra were free 429 retries).
+
+**To run the full 25-Q version** (needs paid quota or a higher free tier):
 ```
-# Groq path (preferred — faster judge, lower per-token cost):
-LLM_PROVIDER=groq RAGAS_MAX_WORKERS=2 \
-    POSTGRES_HOST=localhost POSTGRES_PORT=5432 \
-    python -m evals.rag.ragas_eval --out reports/ragas.json
-
-# OpenRouter path (if Groq TPD comes back tight):
-LLM_PROVIDER=openrouter RAGAS_MAX_WORKERS=3 \
-    POSTGRES_HOST=localhost POSTGRES_PORT=5432 \
-    python -m evals.rag.ragas_eval --out reports/ragas.json
+LLM_PROVIDER=groq RAGAS_MAX_WORKERS=1 \
+    POSTGRES_HOST=localhost POSTGRES_PORT_INTERNAL=5432 \
+    python -m evals.rag.ragas_eval --request-budget 100 --out reports/ragas.json
 ```
-
-If the answer-gen phase completes but scoring fails, the cache at
-`reports/ragas_answers.json` lets the next run resume with
-`--skip-gen`. ~20 min answer-gen on Groq, ~10 min scoring at
-`max_workers=2`. Budget: ~50k tokens.
+With answers already cached in `reports/ragas_answers.json`, add `--skip-gen`
+to re-score only (no answer-gen quota spent).
 
 ### Spearman ρ — judge calibration
 
@@ -101,8 +103,14 @@ AI-recommended Likert scores already filled (scores: 5, 4, 2, 5, 2 — captured
 during slice 07). `python -m evals.rag.spearman` computes ρ against
 `reports/ragas.json` answer_relevancy.
 
-Status: ρ computation **blocked on the full 25-Q RAGAS run completing** (see
-above). Decision rule when it lands: if post-calibration ρ < 0.6,
-`answer_relevancy` is demoted to `advisory: true` in `eval_thresholds.yaml`
-per the judge disagreement protocol; if 0.6 ≤ ρ < 0.8 the judge stays gating
-but the EVALS.md narrative flags the lower confidence.
+Status: **not computable from the 2026-05-22 subset run.** The hand-labeled
+questions are golden indices 0, 2, 11, 16, 22; the quota-capped RAGAS subset
+was indices 0, 4, 12, 15, 18 — they overlap in only one question, and a rank
+correlation needs RAGAS `answer_relevancy` and hand-labels on the *same*
+question set. To compute ρ, re-score the aligned subset with
+`ragas_eval.py --indices 0,2,11,16,22` (no `--skip-gen` — answers for the new
+indices must be generated), then run `python -m evals.rag.spearman`. Decision
+rule when it lands: if post-calibration ρ < 0.6, `answer_relevancy` is demoted
+to `advisory: true` in `eval_thresholds.yaml` per the judge disagreement
+protocol; if 0.6 ≤ ρ < 0.8 the judge stays gating but the EVALS.md narrative
+flags the lower confidence.
