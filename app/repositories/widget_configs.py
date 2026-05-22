@@ -20,6 +20,7 @@ def _row_to_config(row: Any) -> WidgetConfig:
         enabled_tools=tuple(row["enabled_tools"] or ()),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        theme=row["theme"],
     )
 
 
@@ -51,6 +52,7 @@ async def create(
     position: str = "br",
     greeting_text: str = "Hi! Ask me anything about this project.",
     enabled_tools: list[str] | None = None,
+    theme: str = "midnight",
 ) -> str:
     if position not in ALLOWED_POSITIONS:
         raise ValueError(f"position must be one of {ALLOWED_POSITIONS}")
@@ -59,8 +61,9 @@ async def create(
         row = await conn.fetchrow(
             """
             INSERT INTO widget_configs
-                (name, allowed_origins, primary_color, position, greeting_text, enabled_tools)
-            VALUES ($1, $2, $3, $4, $5, $6)
+                (name, allowed_origins, primary_color, position, greeting_text,
+                 enabled_tools, theme)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
             """,
             name,
@@ -69,6 +72,7 @@ async def create(
             position,
             greeting_text,
             tools,
+            theme,
         )
     return str(row["id"])
 
@@ -80,6 +84,7 @@ _PATCHABLE = {
     "position",
     "greeting_text",
     "enabled_tools",
+    "theme",
 }
 
 

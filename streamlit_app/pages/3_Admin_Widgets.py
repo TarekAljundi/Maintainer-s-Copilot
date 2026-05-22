@@ -1,8 +1,12 @@
-"""Admin-only. CRUD widget configs (allowed_origins, theme, greeting,
+"""Admin-only. CRUD widget configs (allowed_origins, theme, position, greeting,
 enabled_tools). Shows the generated <script> embed snippet per widget.
 
 Calls the slice-13 admin endpoints under /api/admin/widgets. Page is gated
 on `me.role == "admin"` from /api/me; non-admins see an error.
+
+The widget's look is chosen from six preset themes (app/domain/widget_themes.py)
+— the admin picks one from a gallery of live mini-previews rather than typing a
+raw colour.
 """
 
 from __future__ import annotations
@@ -12,6 +16,9 @@ from typing import Any
 
 import httpx
 import streamlit as st
+
+import _theme
+from app.domain.widget_themes import DEFAULT_THEME, THEME_KEYS, THEMES
 
 
 API_BASE = os.environ.get("API_BASE", "http://api:8000")
@@ -25,6 +32,7 @@ DEFAULT_TOOLS = (
 )
 
 st.set_page_config(page_title="Widgets — Maintainer's Copilot")
+_theme.apply()
 st.title("Widgets")
 
 jwt = st.session_state.get("jwt")
@@ -67,6 +75,61 @@ def _csv_to_list(text: str) -> list[str]:
     return [s.strip() for s in text.split(",") if s.strip()]
 
 
+# ---- Theme picker ----------------------------------------------------------
+
+
+def _theme_preview_html(t: dict[str, str]) -> str:
+    """A small chat-widget mockup rendered in the theme's palette, so the admin
+    sees the actual look — header, an assistant + user bubble, an input bar."""
+    return (
+        f'<div style="background:{t["panel"]};border:1px solid {t["border"]};'
+        'border-radius:10px;overflow:hidden;font-family:Inter,system-ui,sans-serif;'
+        'margin-bottom:6px;">'
+        f'<div style="background:{t["surface"]};border-bottom:1px solid {t["border"]};'
+        'padding:7px 9px;display:flex;align-items:center;gap:6px;">'
+        f'<div style="width:15px;height:15px;border-radius:50%;background:{t["accent"]};">'
+        '</div>'
+        f'<span style="color:{t["fg"]};font-size:11px;font-weight:600;">{t["label"]}</span>'
+        '</div>'
+        '<div style="padding:9px;display:flex;flex-direction:column;gap:6px;">'
+        f'<div style="align-self:flex-start;background:{t["surface"]};color:{t["fg"]};'
+        'font-size:9.5px;padding:5px 8px;border-radius:9px;max-width:80%;">'
+        'Hi! How can I help?</div>'
+        f'<div style="align-self:flex-end;background:{t["accent"]};color:{t["on_accent"]};'
+        'font-size:9.5px;padding:5px 8px;border-radius:9px;max-width:80%;">'
+        'What is a DataFrame?</div>'
+        '</div>'
+        f'<div style="background:{t["surface"]};border-top:1px solid {t["border"]};'
+        'padding:7px 9px;display:flex;align-items:center;gap:6px;">'
+        f'<div style="flex:1;background:{t["panel"]};border:1px solid {t["border"]};'
+        'border-radius:999px;height:15px;"></div>'
+        f'<div style="width:18px;height:18px;border-radius:50%;background:{t["accent"]};'
+        'flex-shrink:0;"></div>'
+        '</div>'
+        '</div>'
+    )
+
+
+def _theme_picker(state_key: str, current: str) -> str:
+    """Render the 6-theme gallery + a radio selector. Returns the chosen key."""
+    keys = list(THEME_KEYS)
+    for row_start in (0, 3):
+        cols = st.columns(3)
+        for col, tk in zip(cols, keys[row_start : row_start + 3]):
+            with col:
+                st.markdown(_theme_preview_html(THEMES[tk]), unsafe_allow_html=True)
+    idx = keys.index(current) if current in keys else 0
+    return st.radio(
+        "Theme",
+        keys,
+        index=idx,
+        format_func=lambda k: THEMES[k]["label"],
+        horizontal=True,
+        key=state_key,
+        label_visibility="collapsed",
+    )
+
+
 # ---- Create form -----------------------------------------------------------
 
 with st.expander("Create a widget", expanded=False):
@@ -77,16 +140,12 @@ with st.expander("Create a widget", expanded=False):
             placeholder="http://localhost:8087, https://example.com",
             help="Each entry becomes a frame-ancestors source + a CORS allowlist entry.",
         )
-        c1, c2 = st.columns(2)
-        with c1:
-            position = st.selectbox(
-                "Position",
-                ALLOWED_POSITIONS,
-                index=0,
-                help="br/bl/tr/tl — corner of the host page the iframe pins to.",
-            )
-        with c2:
-            primary_color = st.text_input("Primary color", value="#1e293b")
+        position = st.selectbox(
+            "Position",
+            ALLOWED_POSITIONS,
+            index=0,
+            help="br/bl/tr/tl — corner of the host page the iframe pins to.",
+        )
         greeting = st.text_area(
             "Greeting text",
             value="Hi! Ask me anything about this project.",
@@ -98,6 +157,8 @@ with st.expander("Create a widget", expanded=False):
             default=list(DEFAULT_TOOLS),
             help="Snapshotted into each minted anon-session JWT at /widget/{id}/session.",
         )
+        st.markdown("**Theme** — pick a design:")
+        theme = _theme_picker("create_theme", DEFAULT_THEME)
         submitted = st.form_submit_button("Create")
     if submitted:
         if not name.strip():
@@ -109,10 +170,10 @@ with st.expander("Create a widget", expanded=False):
                 json={
                     "name": name.strip(),
                     "allowed_origins": _csv_to_list(origins),
-                    "primary_color": primary_color.strip() or "#1e293b",
                     "position": position,
                     "greeting_text": greeting,
                     "enabled_tools": tools_picked or list(DEFAULT_TOOLS),
+                    "theme": theme,
                 },
             )
             if r.status_code == 201:
@@ -134,10 +195,11 @@ if not widgets:
 
 for w in widgets:
     wid = w["id"]
+    theme_label = THEMES.get(w.get("theme", ""), {}).get("label", w.get("theme", "?"))
     with st.expander(f"**{w['name']}**  ·  `{wid[:8]}…`", expanded=False):
         st.markdown(
             f"- **Position:** `{w['position']}`  ·  "
-            f"**Color:** `{w['primary_color']}`  ·  "
+            f"**Theme:** {theme_label}  ·  "
             f"**Tools:** {len(w['enabled_tools'])}"
         )
 
@@ -154,16 +216,12 @@ for w in widgets:
                 value=", ".join(w["allowed_origins"]),
                 key=f"o_{wid}",
             )
-            c1, c2 = st.columns(2)
-            with c1:
-                e_position = st.selectbox(
-                    "Position",
-                    ALLOWED_POSITIONS,
-                    index=ALLOWED_POSITIONS.index(w["position"]),
-                    key=f"p_{wid}",
-                )
-            with c2:
-                e_color = st.text_input("Primary color", value=w["primary_color"], key=f"c_{wid}")
+            e_position = st.selectbox(
+                "Position",
+                ALLOWED_POSITIONS,
+                index=ALLOWED_POSITIONS.index(w["position"]),
+                key=f"p_{wid}",
+            )
             e_greeting = st.text_area(
                 "Greeting text",
                 value=w["greeting_text"],
@@ -176,6 +234,8 @@ for w in widgets:
                 default=w["enabled_tools"],
                 key=f"t_{wid}",
             )
+            st.markdown("**Theme** — pick a design:")
+            e_theme = _theme_picker(f"th_{wid}", w.get("theme", DEFAULT_THEME))
             save = st.form_submit_button("Save changes")
         if save:
             patch: dict[str, Any] = {}
@@ -186,12 +246,12 @@ for w in widgets:
                 patch["allowed_origins"] = origins_now
             if e_position != w["position"]:
                 patch["position"] = e_position
-            if e_color != w["primary_color"]:
-                patch["primary_color"] = e_color
             if e_greeting != w["greeting_text"]:
                 patch["greeting_text"] = e_greeting
             if e_tools != w["enabled_tools"]:
                 patch["enabled_tools"] = e_tools
+            if e_theme != w.get("theme"):
+                patch["theme"] = e_theme
             if not patch:
                 st.info("No changes.")
             else:

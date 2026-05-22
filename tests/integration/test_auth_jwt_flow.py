@@ -55,6 +55,7 @@ async def auth_app(pg_available, monkeypatch):
         },
     )
 
+    from app.infra import db as infra_db
     from app.infra import sa_db
 
     # Dispose any engine left by a prior test before swapping the singleton.
@@ -62,6 +63,10 @@ async def auth_app(pg_available, monkeypatch):
         await sa_db._engine.dispose()
     sa_db._engine = None
     sa_db._sessionmaker = None
+    # The raw-asyncpg pool (used by the audit write in on_after_register) is
+    # bound to the event loop that created it. A pool left by a prior test is
+    # tied to a now-closed loop — abandon it so this test builds a fresh one.
+    infra_db._pool = None
 
     from fastapi import FastAPI
 
@@ -76,6 +81,7 @@ async def auth_app(pg_available, monkeypatch):
             await sa_db._engine.dispose()
         sa_db._engine = None
         sa_db._sessionmaker = None
+        await infra_db.close_pool()
 
 
 @pytest_asyncio.fixture
@@ -106,6 +112,23 @@ async def test_register_login_me(client):
     assert me["kind"] == "user"
     assert me["email"] == email
     assert me["role"] == "user"
+
+
+async def test_register_cannot_self_assign_admin(client):
+    """Registration is public (host page) — a `role` field in the body must not
+    let a self-registrant elevate to admin. The register schema omits `role`,
+    so the field is either ignored (account defaults to `user`) or rejected."""
+    email = f"test-{uuid.uuid4().hex[:8]}@example.com"
+    pw = "supersecret-test-pw"
+
+    r = await client.post(
+        "/auth/register",
+        json={"email": email, "password": pw, "role": "admin"},
+    )
+    if r.status_code in (200, 201):
+        assert r.json()["role"] == "user", r.text
+    else:
+        assert r.status_code == 422, r.text
 
 
 async def test_me_rejects_missing_or_bogus_token(client):

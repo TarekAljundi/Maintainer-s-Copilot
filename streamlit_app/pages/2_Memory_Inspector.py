@@ -11,9 +11,12 @@ import os
 import httpx
 import streamlit as st
 
+import _theme
+
 API_BASE = os.environ.get("API_BASE", "http://api:8000")
 
 st.set_page_config(page_title="Memory Inspector — Maintainer's Copilot")
+_theme.apply()
 st.title("Memory Inspector")
 
 jwt = st.session_state.get("jwt")

@@ -3,13 +3,16 @@
 @tailwind utilities;
 
 :root {
-  --mc-primary: #1e293b;
-  --mc-bg: #ffffff;
-  --mc-fg: #0f172a;
-  --mc-muted: #64748b;
-  --mc-border: #e2e8f0;
-  --mc-bubble-user: var(--mc-primary);
-  --mc-bubble-bot: #f1f5f9;
+  /* Fallback palette = the "Midnight" preset. The widget App overrides every
+     one of these per the admin-selected theme (see app/domain/widget_themes.py
+     — resolved server-side and applied as inline custom properties). */
+  --mc-panel: #0f172a;
+  --mc-surface: #1e293b;
+  --mc-border: #334155;
+  --mc-fg: #f8fafc;
+  --mc-muted: #94a3b8;
+  --mc-accent: #22c55e;
+  --mc-on-accent: #052e16;
 }
 
 html, body, #root {
@@ -31,18 +34,19 @@ html, body, #root {
   padding: 12px 18px 12px 14px;
   border: none;
   border-radius: 999px;
-  color: #fff;
+  background: var(--mc-accent);
+  color: var(--mc-on-accent);
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -.005em;
   cursor: pointer;
-  box-shadow: 0 8px 24px -8px rgba(15,23,42,.35), 0 2px 4px rgba(15,23,42,.1);
+  box-shadow: 0 10px 30px -8px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.06);
   transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
 }
 .mc-launcher:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 28px -8px rgba(15,23,42,.42), 0 2px 4px rgba(15,23,42,.1);
-  filter: brightness(1.06);
+  box-shadow: 0 14px 36px -8px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.08);
+  filter: brightness(1.08);
 }
 .mc-launcher:active { transform: translateY(0); }
 .mc-launcher svg { width: 18px; height: 18px; flex-shrink: 0; }
@@ -50,58 +54,78 @@ html, body, #root {
 /* ---- Panel (expanded chat) -------------------------------------------- */
 
 .mc-panel {
+  /* Fixed intrinsic size. NOT vh/vw — those resolve against the iframe
+     viewport, which the loader sizes *from* this panel; a vh cap here would
+     feed back into a self-collapsing loop. The loader caps the iframe at
+     480x600 for genuinely small screens. */
   display: flex;
   flex-direction: column;
   width: 380px;
-  max-width: 100vw;
   height: 540px;
-  max-height: 90vh;
-  background: var(--mc-bg);
+  background: var(--mc-panel);
+  border: 1px solid var(--mc-border);
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 20px 50px -12px rgba(15,23,42,.35), 0 0 0 1px rgba(15,23,42,.06);
+  box-shadow: 0 24px 60px -12px rgba(0,0,0,.55);
 }
 
 .mc-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: #fff;
+  gap: 11px;
+  color: var(--mc-fg);
   padding: 14px 16px;
-  background: var(--mc-primary);
-  background-image: linear-gradient(135deg, var(--mc-primary) 0%, color-mix(in srgb, var(--mc-primary) 80%, #000) 100%);
+  background: var(--mc-surface);
+  border-bottom: 1px solid var(--mc-border);
 }
 .mc-avatar {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  background: rgba(255,255,255,.15);
+  background: var(--mc-accent);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
   font-weight: 700;
+  color: var(--mc-on-accent);
   flex-shrink: 0;
 }
 .mc-title { flex: 1; min-width: 0; }
-.mc-title .name { font-weight: 600; font-size: 14px; line-height: 1.2; }
-.mc-title .sub  { font-size: 11px; opacity: .75; line-height: 1.2; }
+.mc-title .name { font-weight: 600; font-size: 14px; line-height: 1.3; }
+.mc-title .sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--mc-muted);
+  line-height: 1.3;
+}
+.mc-title .sub::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mc-accent);
+  box-shadow: 0 0 6px var(--mc-accent);
+  flex-shrink: 0;
+}
 .mc-close {
   background: transparent;
   border: none;
-  color: #fff;
+  color: var(--mc-muted);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: .8;
+  transition: background .12s ease, color .12s ease;
 }
-.mc-close:hover { background: rgba(255,255,255,.12); opacity: 1; }
+.mc-close:hover { background: var(--mc-border); color: var(--mc-fg); }
 
 /* ---- Message list ----------------------------------------------------- */
 
@@ -112,22 +136,22 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: #fafbfc;
+  background: var(--mc-panel);
   scroll-behavior: smooth;
 }
 .mc-messages::-webkit-scrollbar { width: 6px; }
-.mc-messages::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-.mc-messages::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.mc-messages::-webkit-scrollbar-thumb { background: var(--mc-border); border-radius: 3px; }
+.mc-messages::-webkit-scrollbar-thumb:hover { background: var(--mc-muted); }
 
 .mc-empty {
   margin: auto;
   text-align: center;
   color: var(--mc-muted);
   font-size: 13px;
-  max-width: 240px;
-  line-height: 1.5;
+  max-width: 250px;
+  line-height: 1.55;
 }
-.mc-empty strong { color: var(--mc-fg); display: block; margin-bottom: 4px; font-size: 14px; }
+.mc-empty strong { color: var(--mc-fg); display: block; margin-bottom: 5px; font-size: 14px; }
 
 .mc-msg {
   display: flex;
@@ -139,7 +163,7 @@ html, body, #root {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.mc-msg-user   { align-self: flex-end; align-items: flex-end; }
+.mc-msg-user      { align-self: flex-end; align-items: flex-end; }
 .mc-msg-assistant { align-self: flex-start; align-items: flex-start; }
 
 .mc-bubble {
@@ -151,12 +175,12 @@ html, body, #root {
   overflow-wrap: anywhere;
 }
 .mc-msg-user .mc-bubble {
-  background: var(--mc-bubble-user);
-  color: #fff;
+  background: var(--mc-accent);
+  color: var(--mc-on-accent);
   border-bottom-right-radius: 4px;
 }
 .mc-msg-assistant .mc-bubble {
-  background: var(--mc-bubble-bot);
+  background: var(--mc-surface);
   color: var(--mc-fg);
   border-bottom-left-radius: 4px;
 }
@@ -164,22 +188,25 @@ html, body, #root {
 .mc-md p { margin: 0 0 6px 0; }
 .mc-md p:last-child { margin-bottom: 0; }
 .mc-md code {
-  background: rgba(15,23,42,.08);
+  background: rgba(128,128,128,.22);
   padding: 1px 5px;
   border-radius: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 90%;
 }
-.mc-msg-user .mc-md code { background: rgba(255,255,255,.2); color: #fff; }
+.mc-msg-user .mc-md code { background: rgba(0,0,0,.2); }
 .mc-md pre {
-  background: rgba(15,23,42,.06);
+  background: var(--mc-panel);
+  border: 1px solid var(--mc-border);
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow-x: auto;
   font-size: 12px;
   margin: 6px 0;
 }
-.mc-md a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.mc-md pre code { background: transparent; padding: 0; }
+.mc-md a { color: var(--mc-accent); text-decoration: underline; text-underline-offset: 2px; }
+.mc-msg-user .mc-md a { color: var(--mc-on-accent); }
 .mc-md ul, .mc-md ol { margin: 4px 0; padding-left: 18px; }
 
 .mc-tools {
@@ -196,8 +223,9 @@ html, body, #root {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 7px;
-  background: rgba(15,23,42,.05);
+  padding: 2px 8px;
+  background: var(--mc-surface);
+  border: 1px solid var(--mc-border);
   border-radius: 999px;
 }
 .mc-tools li code {
@@ -206,14 +234,14 @@ html, body, #root {
   padding: 0;
   font-size: 11px;
 }
-.mc-tool-fail { color: #dc2626; font-weight: 600; }
+.mc-tool-fail { color: #f87171; font-weight: 600; }
 
 .mc-thinking {
   align-self: flex-start;
   display: inline-flex;
   gap: 4px;
-  padding: 10px 13px;
-  background: var(--mc-bubble-bot);
+  padding: 11px 14px;
+  background: var(--mc-surface);
   border-radius: 14px 14px 14px 4px;
 }
 .mc-thinking span {
@@ -235,10 +263,12 @@ html, body, #root {
   gap: 8px;
   padding: 12px;
   border-top: 1px solid var(--mc-border);
-  background: var(--mc-bg);
+  background: var(--mc-surface);
 }
 .mc-input input {
   flex: 1;
+  background: var(--mc-panel);
+  color: var(--mc-fg);
   border: 1px solid var(--mc-border);
   outline: none;
   padding: 10px 14px;
@@ -247,16 +277,17 @@ html, body, #root {
   transition: border-color .15s ease, box-shadow .15s ease;
   font-family: inherit;
 }
+.mc-input input::placeholder { color: var(--mc-muted); }
 .mc-input input:focus {
-  border-color: var(--mc-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-primary) 18%, transparent);
+  border-color: var(--mc-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-accent) 28%, transparent);
 }
-.mc-input input:disabled { opacity: .7; cursor: not-allowed; }
+.mc-input input:disabled { opacity: .6; cursor: not-allowed; }
 
 .mc-send {
   border: none;
-  background: var(--mc-primary);
-  color: #fff;
+  background: var(--mc-accent);
+  color: var(--mc-on-accent);
   width: 38px;
   height: 38px;
   border-radius: 50%;
@@ -270,3 +301,16 @@ html, body, #root {
 .mc-send svg { width: 16px; height: 16px; }
 .mc-send:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
 .mc-send:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ---- Reduced motion --------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-launcher,
+  .mc-launcher:hover,
+  .mc-close,
+  .mc-input input,
+  .mc-send { transition: none; }
+  .mc-msg,
+  .mc-thinking span { animation: none; }
+  .mc-messages { scroll-behavior: auto; }
+}

@@ -81,3 +81,21 @@ False-positives over false-negatives. A real secret leak is worse than a non-sec
 
 ## LLM-paraphrased secrets
 System prompt instructs LLM to never repeat strings that look like secrets, even paraphrased. Hard guard. Soft guard (redactor) catches verbatim repetitions.
+
+## Authentication & authorization
+
+- **Streamlit is the admin console — admin-only.** `Home.py` signs in via
+  `/auth/jwt/login`, then fetches `/api/me`; it stores the JWT in session
+  state **only if `role == admin`**. A non-admin token is never persisted, so
+  every Streamlit page (chat, memory inspector, widgets) is admin-gated at the
+  single entry point.
+- **Public registration cannot self-elevate.** `/auth/register` is exposed on
+  the public demo host page. Its router binds a `UserRegister` schema with
+  **no `role` field**, so a registrant always lands as `role=user`. The
+  earlier schema accepted `role` — a self-elevation hole, closed once
+  registration moved to a public surface. Admin is granted out of band
+  (`UPDATE users SET role='admin'`).
+- **Auth calls stay same-origin — no CORS widening.** The host page's
+  sign-in / registration form reaches the api through an nginx proxy
+  (`/auth/*`, `/api/me`). The api's dynamic CORS allowlist still covers only
+  `/widget/*` and `/api/chat`, sourced per-widget from the database.

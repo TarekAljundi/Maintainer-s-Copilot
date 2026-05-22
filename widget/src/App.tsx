@@ -36,11 +36,29 @@ export function App({ config, session, apiBase }: WidgetRuntime) {
     return () => window.removeEventListener('message', onMessage)
   }, [])
 
-  const primaryColor = themeOverride || config.primary_color
+  const t = config.theme
+  // The host-page `mc:theme` override (if any) retints the accent only.
+  const accent = themeOverride || t.accent
   const launcherLabel = (config.greeting_text || 'Chat').slice(0, 30)
 
   return (
-    <div ref={containerRef} style={{ ['--mc-primary' as any]: primaryColor }}>
+    // inline-block so the container shrink-wraps the launcher / panel; the
+    // ResizeObserver then reports the true widget size and the loader sizes
+    // the iframe to match (collapsed pill vs. open panel).
+    <div
+      ref={containerRef}
+      style={{
+        ['--mc-panel' as any]: t.panel,
+        ['--mc-surface' as any]: t.surface,
+        ['--mc-border' as any]: t.border,
+        ['--mc-fg' as any]: t.fg,
+        ['--mc-muted' as any]: t.muted,
+        ['--mc-accent' as any]: accent,
+        ['--mc-on-accent' as any]: t.on_accent,
+        display: 'inline-block',
+        verticalAlign: 'top',
+      }}
+    >
       {open ? (
         <ChatPanel
           config={config}
@@ -53,7 +71,6 @@ export function App({ config, session, apiBase }: WidgetRuntime) {
           class="mc-launcher"
           aria-label="Open chat"
           onClick={() => setOpen(true)}
-          style={{ background: primaryColor }}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
