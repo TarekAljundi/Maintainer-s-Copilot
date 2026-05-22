@@ -31,13 +31,50 @@ Categories and replacement labels (`[REDACTED:<category>]`):
 - Generic high-entropy strings — would catch commit SHAs, UUIDs, hashes.
 
 ## Boundaries
-Redactor runs at exactly 3 boundaries:
-1. structlog processor pipeline (every log line)
-2. Langfuse `mask` callback (every span send)
-3. Memory service write path (every long-term memory insert)
+
+Redactor runs at exactly 3 boundaries — every text path that leaves the
+process for durable storage or display passes through one of them.
+
+```
+                ┌──────────────────────────────────────────────┐
+  user input ───┤  app/services/chatbot.py  (in-process only)  │
+                └──────────────────────────────────────────────┘
+                       │                  │                 │
+                       ▼                  ▼                 ▼
+         ┌─────────────────────┐  ┌──────────────┐  ┌──────────────────┐
+         │ structlog processor │  │ Langfuse     │  │ MemoryService    │
+         │ (every log line)    │  │ mask cb      │  │ .write summary   │
+         │                     │  │ (every span) │  │ (before embed!)  │
+         │ redact() on `event` │  │ redact_obj() │  │ redact()         │
+         │ + bind context      │  │ on inputs/   │  │ on summary       │
+         └─────────┬───────────┘  │ outputs      │  └────────┬─────────┘
+                   │              └──────┬───────┘           │
+                   ▼                     ▼                   ▼
+              stderr/JSON          Langfuse UI           Postgres
+              log shipper          + retention             memories.summary
+                                                          (+ embedding never
+                                                           sees raw secret)
+```
+
+Three points worth highlighting:
+- **Redaction happens BEFORE embedding** in the memory path so the vector
+  cannot leak the secret either (an attacker with read access to the
+  vector column couldn't reconstruct the original token via inversion).
+- **The Langfuse `mask` callback uses the `data=` kwarg** in v2 (not
+  positional) — see `app/infra/tracing.py`. Bit us once; it's load-bearing.
+- **No 4th boundary needed** for HTTP responses — chatbot replies are
+  in-process strings; the only persisted echo is via memory writes (#3).
 
 ## Tests
-Brief-mandated. See `tests/unit/test_redaction.py`. Asserts at each of the 3 boundaries that a fake `ghp_…` token never appears unredacted.
+
+Brief-mandated. Two layers of coverage:
+
+| Layer | File | What it asserts |
+|---|---|---|
+| Unit (per-pattern) | `tests/unit/test_redactor.py` | Each pattern category (vendor tokens, URL creds, JWT, email, user paths) redacts when present, leaves clean text alone. |
+| Integration (per-boundary) | `tests/integration/test_redaction_boundaries.py` | At each of the 3 boundaries above: a `ghp_…` token in input never appears unredacted in the persisted/sent output. |
+
+The integration test is the one PRD §Testing Decisions calls out as mandatory.
 
 ## Bias
 False-positives over false-negatives. A real secret leak is worse than a non-secret string redacted.

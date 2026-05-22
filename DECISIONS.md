@@ -102,7 +102,14 @@ The original fastapi pull surfaced a data ceiling that motivated the swap.
 | + Rerank                      | 0.480 | 0.308 | n/a | n/a |
 | + HyDE + parent-doc (**full**) | **0.520** | **0.328** | smoke 0.89 (n=1) | smoke 0.89 |
 
-Full 25-Q RAGAS generation eval pending Groq TPD reset — see EVALS.md §"Generation eval (RAGAS)".
+**Slice 16 re-run (2026-05-21):** all 4 stacks replicated **identically** on the
+current fixed code path (rerank globals fix from the 08+10+11 smoke is in place;
+2,901 chunks indexed). Reports at
+`reports/rag_eval_{naive,hybrid,hybrid_rerank,full}.json`. The slice-16 concern
+that "MRR@10=0.328 was measured with the reranker silently disabled" was moot:
+those numbers were already on the fixed stack. No revision needed.
+
+Full 25-Q RAGAS generation eval did NOT complete — see EVALS.md §"Generation eval (RAGAS)".
 
 ## Chatbot
 - LLM: Groq `llama-3.3-70b-versatile` (default) or OpenRouter `nvidia/nemotron-3-super-120b-a12b:free` via `LLM_PROVIDER` env switch. Both clients are OpenAI-compatible — `app/infra/llm_groq.py` routes the same `stream_chat_with_tools` parser through either base URL. Vault `secret/api/llm` carries both `groq_api_key` and `openrouter_api_key`. Smoke verified Nemotron tool-use (write_memory) + cross-conv recall on 2026-05-20. Full bake-off (25-Q golden + tool-call discipline probe) is a follow-up; default stays Groq until the numbers land.

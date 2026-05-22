@@ -26,12 +26,32 @@
 - Epochs: up to 5, early stop on val macro-F1, patience 1
 - Tracking: TensorBoard (W&B blocked in user region; see DECISIONS.md)
 
-## Metrics (test split)
-- Accuracy: 0.9517
-- Macro-F1: 0.8959
+## Metrics (test split, n=993)
+
+- Accuracy: **0.9517**
+- Macro-F1: **0.8959**
 - Per-class F1: bug=0.9686, feature=0.9483, docs=0.9167, question=0.7500
 - Per-class support: bug=616, feature=163, docs=198, question=16
-- p50/p99 latency: TBD (measured in slice 04 baselines comparison)
+
+### Latency (measured on the 25-row golden, slice 04 rerun)
+
+- p50: **237.2 ms** (single-record, GPU=RTX 4060, bf16, batch=1)
+- p99: **379.4 ms**
+- Throughput is not a deployment constraint; classification is one tool call per
+  chat turn, dominated by the surrounding LLM latency (Groq llama-3.3-70b
+  averages ~7.5 s p50 on the same machine).
+
+### Confusion matrix (golden, n=25; rows=true, cols=pred)
+
+|              | pred bug | pred feature | pred docs | pred question |
+|---|---:|---:|---:|---:|
+| true bug      | 7 | 0 | 0 | 0 |
+| true feature  | 2 | 5 | 0 | 0 |
+| true docs     | 1 | 0 | 3 | 0 |
+| true question | 3 | 0 | 0 | 4 |
+
+The full test-split confusion matrix and the three-way comparison vs classical
+and the Groq LLM baseline live in DECISIONS.md §Three-model comparison.
 
 ## Weights
 - Bucket / prefix: `s3://mc-models/classifier/v1/`
