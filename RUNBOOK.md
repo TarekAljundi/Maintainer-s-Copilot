@@ -193,8 +193,13 @@ header and the dynamic CORS allowlist.
 
 ### 1. Create a widget config (admin only)
 
-The admin needs a JWT with `role=admin` (see slice 10 / `auth/register` then
-manually `UPDATE users SET role='admin' WHERE email = …;`).
+The Streamlit console (`localhost:8501`) is **admin-only** — `Home.py` accepts a
+sign-in only when `/api/me` reports `role=admin`. Regular `user`-role accounts
+register + sign in on the demo host page (`localhost:8087`), not in Streamlit.
+
+To create the first admin: register an account (host page, or `POST /auth/register`
+directly), then promote it manually — `UPDATE users SET role='admin' WHERE email = …;`.
+`/auth/register` itself cannot set the role — its public schema has no `role` field.
 
 ```bash
 TOKEN=...  # admin bearer
@@ -204,11 +209,14 @@ curl -X POST http://localhost:8000/api/admin/widgets \
   -d '{
     "name": "pandas-host-demo",
     "allowed_origins": ["http://localhost:8087"],
-    "primary_color": "#1e293b",
+    "theme": "midnight",
     "position": "br",
     "greeting_text": "Ask me about pandas",
     "enabled_tools": ["classify_issue","extract_entities","summarize_thread","search_knowledge","write_memory"]
   }'
+# theme is one of: midnight | ocean | plum | ember | rose | daylight
+# (app/domain/widget_themes.py). The Streamlit Widgets page picks it from a
+# gallery of live previews; the API resolves the key to a full palette.
 # => { "id": "<uuid>", ... }
 ```
 
@@ -239,6 +247,11 @@ docker compose up -d host host-blocked
   refused by the browser. Open dev tools to see the CSP violation in the
   Console + the `Content-Security-Policy: frame-ancestors …` header on the
   `/widget/<uuid>/embed` response.
+
+The allowed host page also serves a **sign-in / registration card** for
+`user`-role maintainer accounts. Its nginx (`demo/host/nginx.conf`) proxies
+`/auth/*` and `/api/me` to the `api` service so those calls are same-origin —
+no per-widget CORS entry is involved.
 
 ### 4. Anon-session lifecycle
 

@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.domain.exceptions import NotFoundError
 from app.domain.widget import WidgetPublicConfig
+from app.domain.widget_themes import resolve_theme
 from app.services.anon_session import default_service as anon_svc
 from app.services.widget_config import default_service as widget_svc
 
@@ -48,8 +49,14 @@ def _frame_ancestors(origins: tuple[str, ...]) -> str:
 
 
 def _embed_html(widget_id: str, public_cfg: WidgetPublicConfig) -> str:
-    """Minimal HTML shell loaded inside the iframe. Sets two globals the
-    bundle reads at bootstrap and pulls the bundle from the static host.
+    """Minimal HTML shell loaded inside the iframe. Links the widget
+    stylesheet, sets two globals the bundle reads at bootstrap, and pulls the
+    JS bundle — both static assets come from the `widget` host.
+
+    The Vite *library* build emits the widget's CSS as a separate `style.css`
+    (it is not inlined into the IIFE), so the stylesheet must be linked
+    explicitly here or the widget renders unstyled. The `<link>` precedes the
+    inline `<style>` so the per-config `--mc-primary` override still wins.
 
     No inline event handlers; only one inline `<script>` declaring the
     globals (acceptable under the page's own CSP — the parent page's CSP is
@@ -62,7 +69,8 @@ def _embed_html(widget_id: str, public_cfg: WidgetPublicConfig) -> str:
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         f"<title>{public_cfg.name}</title>"
-        f"<style>:root{{color-scheme:light dark;--mc-primary:{color};}}"
+        f'<link rel="stylesheet" href="{bundle}/style.css">'
+        f"<style>:root{{color-scheme:dark;--mc-primary:{color};}}"
         "html,body,#root{margin:0;padding:0;height:100%;background:transparent;}"
         "</style>"
         "</head><body>"
@@ -91,6 +99,8 @@ async def get_public_config(widget_id: str) -> JSONResponse:
             "position": public.position,
             "greeting_text": public.greeting_text,
             "enabled_tools": list(public.enabled_tools),
+            # Resolved palette — the widget bundle applies these verbatim.
+            "theme": resolve_theme(public.theme),
         }
     )
 

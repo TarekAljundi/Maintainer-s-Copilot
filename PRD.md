@@ -147,7 +147,7 @@ A self-hostable assistant called **Maintainer's Copilot** that:
 
 ### Authentication and authorization
 
-- **Authed users (Streamlit):** `fastapi-users` with JWT, email + password registration. Two roles: `user` and `admin`. JWT signing key resolves from Vault at startup.
+- **Authed users (Streamlit):** `fastapi-users` with JWT, email + password registration. Two roles: `user` and `admin`. JWT signing key resolves from Vault at startup. (Updated post-slice-16: the Streamlit surface is now **admin-only** — non-admin sign-ins are rejected — and `user`-role registration + sign-in moved to the public demo host page. Public `/auth/register` no longer accepts a `role` field, so a self-registrant cannot elevate to admin. See DECISIONS.md §Auth.)
 - **Anonymous widget users:** the widget mints a short-lived anonymous JWT scoped to a `widget_id` with claim `{sub: "widget_session:<uuid>", widget_id, enabled_tools}`. Both schemes pass through the same JWT validator, differentiated by `sub` prefix. Conversations and episodic memory are keyed by `widget_session_id` for anonymous users and `user_id` for authed users.
 
 ### Widget and embed flow (Q21, Q22, Q24)
@@ -262,7 +262,7 @@ Modules with tests in this PRD's scope:
 - **Multi-language support.** Corpus, prompts, and embeddings are all English-only. `bge-reranker-v2-m3` (multilingual) was deliberately rejected in favor of the English-only `bge-reranker-base`.
 - **Streaming widget reconnect logic beyond SSE built-ins.** The SSE protocol's `Last-Event-ID` mechanism handles transient disconnects. No application-level reconnect with replay.
 - **Rate limiting beyond per-user per-minute counters in Redis.** No global rate limit, no IP-based rate limit, no exponential backoff on the chatbot LLM calls.
-- **Widget collapse animation and theming beyond primary color + position.** Functional UI only; no transition animations, no dark/light theme toggle from the widget side (host page can override via `mc:theme` postMessage).
+- **Widget collapse animation and theming beyond primary color + position.** Functional UI only; no transition animations, no dark/light theme toggle from the widget side (host page can override via `mc:theme` postMessage). (Partially superseded post-slice-16: the admin now picks from six preset widget themes via a live preview gallery in the Streamlit Widgets page — see DECISIONS.md §Widget.)
 - **Streamlit memory inspector beyond a read-only list.** No inline editing of memories, no manual recall trigger, no entity-graph visualization.
 - **NER beyond regex EntityRuler.** No fine-tuned NER model, no LLM-based entity extraction, no entity linking to external knowledge bases.
 - **Summarization model comparison.** Groq Llama 3.3 is used; no head-to-head against BART-CNN or other pre-trained summarizers (the brief allows either; LLM-driven was chosen for consistency with the rest of the stack).

@@ -45,6 +45,14 @@ class UserCreate(schemas.BaseUserCreate):
     role: str = "user"
 
 
+class UserRegister(schemas.BaseUserCreate):
+    """Public self-registration body. Deliberately omits `role` so a self
+    registrant cannot elevate to admin — admin is granted out of band
+    (RUNBOOK §Widget admin bootstrap). `UserCreate` (with `role`) stays for the
+    admin-invite path, which constructs it server-side, never from a request
+    body."""
+
+
 class UserUpdate(schemas.BaseUserUpdate):
     role: Optional[str] = None
 
@@ -236,7 +244,7 @@ router.include_router(
     tags=["auth"],
 )
 router.include_router(
-    fastapi_users.get_register_router(UserRead, UserCreate),
+    fastapi_users.get_register_router(UserRead, UserRegister),
     prefix="/auth",
     tags=["auth"],
 )

@@ -5,10 +5,10 @@
 | Service | Role |
 |---|---|
 | `api` | FastAPI: auth, chat, memory, RAG orchestration, widget config |
-| `chatbot` | Streamlit: login, full chat, memory inspector, admin |
-| `widget` | Static server: built Preact bundle + loader.js |
+| `chatbot` | Streamlit admin console (admin-only sign-in): chat, memory inspector, widget config |
+| `widget` | Static server: built Preact bundle (`widget-bundle.js` + `style.css`) + loader.js |
 | `model-server` | FastAPI inference: classifier, NER, reranker, embedder |
-| `host` / `host-blocked` | Demo nginx hosts (allowed + blocked origin, side-by-side CSP demo) |
+| `host` / `host-blocked` | Demo nginx hosts (allowed + blocked origin, CSP demo). The allowed host also serves the maintainer sign-in/registration card and proxies `/auth/*` + `/api/me` to `api` |
 | `migrate` | One-shot `alembic upgrade head` |
 | `minio-init` | One-shot bucket creator (`mc-models`, `mc-evals`) |
 | `vault-init` | One-shot Vault seeder (see RUNBOOK §Vault paths) |

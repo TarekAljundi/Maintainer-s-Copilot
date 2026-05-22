@@ -35,6 +35,9 @@ class WidgetConfig:
     enabled_tools: tuple[str, ...]
     created_at: datetime
     updated_at: datetime
+    # `theme` is a preset key (see app/domain/widget_themes.py). Last field
+    # with a default so existing keyword constructors stay valid.
+    theme: str = "midnight"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +50,7 @@ class WidgetPublicConfig:
     position: str
     greeting_text: str
     enabled_tools: tuple[str, ...]
+    theme: str = "midnight"
 
     @classmethod
     def from_config(cls, c: WidgetConfig) -> "WidgetPublicConfig":
@@ -57,4 +61,5 @@ class WidgetPublicConfig:
             position=c.position,
             greeting_text=c.greeting_text,
             enabled_tools=c.enabled_tools,
+            theme=c.theme,
         )

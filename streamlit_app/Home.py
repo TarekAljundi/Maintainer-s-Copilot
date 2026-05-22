@@ -1,8 +1,10 @@
-"""Streamlit landing page. Login + register forms.
+"""Streamlit landing page. Admin sign-in only.
 
-PRD §Authentication §Streamlit. JWT goes into st.session_state["jwt"] on
-successful login; every API call from the other pages attaches it as
-`Authorization: Bearer …`.
+PRD §Authentication §Streamlit. This is the admin console — only `role=admin`
+accounts may sign in. Regular users register and sign in on the public host
+page, not here, so registration deliberately does not exist on this surface.
+JWT goes into st.session_state["jwt"] on successful admin login; every API
+call from the other pages attaches it as `Authorization: Bearer …`.
 """
 
 from __future__ import annotations
@@ -12,10 +14,14 @@ import os
 import httpx
 import streamlit as st
 
+import _theme
+
 API_BASE = os.environ.get("API_BASE", "http://api:8000")
 
 st.set_page_config(page_title="Maintainer's Copilot")
+_theme.apply()
 st.title("Maintainer's Copilot")
+st.caption("Admin console")
 
 if "jwt" not in st.session_state:
     st.session_state["jwt"] = None
@@ -23,13 +29,11 @@ if "me" not in st.session_state:
     st.session_state["me"] = None
 
 
-def _fetch_me() -> dict | None:
-    if not st.session_state["jwt"]:
-        return None
+def _fetch_me(token: str) -> dict | None:
     try:
         r = httpx.get(
             f"{API_BASE}/api/me",
-            headers={"Authorization": f"Bearer {st.session_state['jwt']}"},
+            headers={"Authorization": f"Bearer {token}"},
             timeout=10,
         )
         if r.status_code == 200:
@@ -37,10 +41,6 @@ def _fetch_me() -> dict | None:
     except httpx.HTTPError:
         pass
     return None
-
-
-if st.session_state["jwt"] and not st.session_state["me"]:
-    st.session_state["me"] = _fetch_me()
 
 
 me = st.session_state["me"]
@@ -61,44 +61,39 @@ if me:
         st.rerun()
     st.markdown("Use the sidebar to open **Chat**, **Memory Inspector**, or **Widgets**.")
 else:
-    tab_login, tab_register = st.tabs(["Sign in", "Register"])
-
-    with tab_login:
-        with st.form("login_form"):
-            email = st.text_input("Email")
-            pw = st.text_input("Password", type="password")
-            ok = st.form_submit_button("Sign in")
-        if ok:
-            try:
-                r = httpx.post(
-                    f"{API_BASE}/auth/jwt/login",
-                    data={"username": email, "password": pw},
-                    timeout=15,
-                )
-                if r.status_code == 200:
-                    st.session_state["jwt"] = r.json()["access_token"]
-                    st.session_state["me"] = None
+    st.markdown(
+        "Sign in with an **admin** account. New users register on the host page, "
+        "not here — this console is admin-only."
+    )
+    with st.form("login_form"):
+        email = st.text_input("Email")
+        pw = st.text_input("Password", type="password")
+        ok = st.form_submit_button("Sign in")
+    if ok:
+        try:
+            r = httpx.post(
+                f"{API_BASE}/auth/jwt/login",
+                data={"username": email, "password": pw},
+                timeout=15,
+            )
+        except httpx.HTTPError as exc:
+            st.error(f"Network error: {exc}")
+        else:
+            if r.status_code != 200:
+                st.error(f"Login failed: {r.status_code} {r.text[:200]}")
+            else:
+                token = r.json()["access_token"]
+                profile = _fetch_me(token)
+                if profile is None:
+                    st.error("Signed in, but could not load your profile. Try again.")
+                elif profile.get("role") != "admin":
+                    # Admin-only console: never store a non-admin token. The
+                    # token is left to expire on its own — it is never persisted.
+                    st.error(
+                        "This console is admin-only — your account is not an admin. "
+                        "Regular users chat through the widget on the host page."
+                    )
+                else:
+                    st.session_state["jwt"] = token
+                    st.session_state["me"] = profile
                     st.rerun()
-                else:
-                    st.error(f"Login failed: {r.status_code} {r.text[:200]}")
-            except httpx.HTTPError as exc:
-                st.error(f"Network error: {exc}")
-
-    with tab_register:
-        with st.form("register_form"):
-            email_r = st.text_input("Email", key="reg_email")
-            pw_r = st.text_input("Password", type="password", key="reg_pw")
-            ok_r = st.form_submit_button("Create account")
-        if ok_r:
-            try:
-                r = httpx.post(
-                    f"{API_BASE}/auth/register",
-                    json={"email": email_r, "password": pw_r},
-                    timeout=15,
-                )
-                if r.status_code in (200, 201):
-                    st.success("Account created. Sign in on the left tab.")
-                else:
-                    st.error(f"Registration failed: {r.status_code} {r.text[:200]}")
-            except httpx.HTTPError as exc:
-                st.error(f"Network error: {exc}")

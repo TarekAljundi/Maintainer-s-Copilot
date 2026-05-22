@@ -31,6 +31,7 @@ def _serialize(c: WidgetConfig) -> str:
             "position": c.position,
             "greeting_text": c.greeting_text,
             "enabled_tools": list(c.enabled_tools),
+            "theme": c.theme,
             "created_at": c.created_at.isoformat(),
             "updated_at": c.updated_at.isoformat(),
         }
@@ -49,6 +50,8 @@ def _deserialize(raw: str) -> WidgetConfig:
         position=d["position"],
         greeting_text=d["greeting_text"],
         enabled_tools=tuple(d["enabled_tools"]),
+        # `.get` keeps pre-theme cache entries readable across a deploy.
+        theme=d.get("theme", "midnight"),
         created_at=datetime.fromisoformat(d["created_at"]),
         updated_at=datetime.fromisoformat(d["updated_at"]),
     )

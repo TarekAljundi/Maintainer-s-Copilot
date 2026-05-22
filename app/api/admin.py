@@ -19,6 +19,7 @@ from pydantic import BaseModel, EmailStr, Field
 from app.api.auth import UserCreate, get_user_manager, require_admin
 from app.domain.exceptions import NotFoundError
 from app.domain.widget import ALLOWED_POSITIONS, DEFAULT_ENABLED_TOOLS, WidgetConfig
+from app.domain.widget_themes import DEFAULT_THEME, THEMES
 from app.repositories.audit import list_for_actor, write_audit
 from app.repositories.users import User
 from app.services.widget_config import WidgetConfigService, default_service as widget_svc
@@ -101,6 +102,7 @@ class WidgetCreate(BaseModel):
     position: str = "br"
     greeting_text: str = "Hi! Ask me anything about this project."
     enabled_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_ENABLED_TOOLS))
+    theme: str = DEFAULT_THEME
 
 
 class WidgetUpdate(BaseModel):
@@ -110,6 +112,7 @@ class WidgetUpdate(BaseModel):
     position: str | None = None
     greeting_text: str | None = None
     enabled_tools: list[str] | None = None
+    theme: str | None = None
 
 
 class WidgetView(BaseModel):
@@ -120,6 +123,7 @@ class WidgetView(BaseModel):
     position: str
     greeting_text: str
     enabled_tools: list[str]
+    theme: str
 
 
 def _to_view(c: WidgetConfig) -> WidgetView:
@@ -131,6 +135,7 @@ def _to_view(c: WidgetConfig) -> WidgetView:
         position=c.position,
         greeting_text=c.greeting_text,
         enabled_tools=list(c.enabled_tools),
+        theme=c.theme,
     )
 
 
@@ -171,6 +176,8 @@ async def create_widget(
         raise HTTPException(
             status_code=422, detail=f"position must be one of {list(ALLOWED_POSITIONS)}"
         )
+    if body.theme not in THEMES:
+        raise HTTPException(status_code=422, detail=f"theme must be one of {list(THEMES)}")
     cfg = await _service().create(
         name=body.name,
         allowed_origins=_normalize_origins(body.allowed_origins),
@@ -178,6 +185,7 @@ async def create_widget(
         position=body.position,
         greeting_text=body.greeting_text,
         enabled_tools=body.enabled_tools,
+        theme=body.theme,
     )
     await write_audit(
         actor=str(admin.id),
@@ -224,6 +232,8 @@ async def patch_widget(
         raise HTTPException(
             status_code=422, detail=f"position must be one of {list(ALLOWED_POSITIONS)}"
         )
+    if "theme" in patch and patch["theme"] not in THEMES:
+        raise HTTPException(status_code=422, detail=f"theme must be one of {list(THEMES)}")
     try:
         cfg = await _service().update(widget_id, **patch)
     except NotFoundError as exc:
